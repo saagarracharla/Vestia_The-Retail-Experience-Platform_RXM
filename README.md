@@ -1,1 +1,1 @@
-# AI-in-Fitting-Rooms
+# Vestia - The Retail Experience Platform (RXM)
