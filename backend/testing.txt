@@ -1,0 +1,23 @@
+Scan item:
+
+curl -X POST http://localhost:4000/api/session/scan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "session-1",
+    "sku": "SKU123",
+    "name": "Blue Slim-Fit Shirt",
+    "color": "blue",
+    "size": "M"
+  }'
+
+
+Request Size:
+
+curl -X POST http://localhost:4000/api/request \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "session-1",
+    "sku": "SKU123",
+    "requestedSize": "L",
+    "requestedColor": "blue"
+  }'
