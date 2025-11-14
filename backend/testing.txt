@@ -1,5 +1,6 @@
-Scan item:
+# ==================== P0: CHANGEROOM SESSION ====================
 
+# Scan item into session
 curl -X POST http://localhost:4000/api/session/scan \
   -H "Content-Type: application/json" \
   -d '{
@@ -10,9 +11,13 @@ curl -X POST http://localhost:4000/api/session/scan \
     "size": "M"
   }'
 
+# Get session details
+curl http://localhost:4000/api/session/session-1
 
-Request Size:
 
+# ==================== P0: REQUEST SIZE/COLOR ====================
+
+# Request different size/color
 curl -X POST http://localhost:4000/api/request \
   -H "Content-Type: application/json" \
   -d '{
@@ -21,3 +26,148 @@ curl -X POST http://localhost:4000/api/request \
     "requestedSize": "L",
     "requestedColor": "blue"
   }'
+
+# View all requests (staff dashboard)
+curl http://localhost:4000/api/requests
+
+# Update request status (staff marks as delivered)
+curl -X POST http://localhost:4000/api/request/1/status \
+  -H "Content-Type: application/json" \
+  -d '{
+    "status": "Delivered"
+  }'
+
+
+# ==================== P0: FEEDBACK ====================
+
+# Submit feedback
+curl -X POST http://localhost:4000/api/feedback \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "session-1",
+    "rating": 5,
+    "comment": "Great fitting room experience!"
+  }'
+
+
+# ==================== P1: ANALYTICS ====================
+
+# View store analytics
+curl http://localhost:4000/api/analytics
+
+
+# ==================== P1: RULE-BASED RECOMMENDATIONS ====================
+
+# Get recommendations for GUEST user (blue shirt -> pants & shoes)
+curl -X POST http://localhost:4000/api/recommendations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "baseSku": "119704139_1",
+    "targetCategories": ["bottom", "shoes"],
+    "topK": 3
+  }'
+
+# Get recommendations for LOGGED-IN user (personalized)
+curl -X POST http://localhost:4000/api/recommendations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "baseSku": "119704139_1",
+    "customerId": "CUST-123",
+    "targetCategories": ["bottom", "shoes"],
+    "topK": 3
+  }'
+
+# Get recommendations for navy t-shirt
+curl -X POST http://localhost:4000/api/recommendations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "baseSku": "119704139_2",
+    "customerId": "CUST-123",
+    "targetCategories": ["bottom", "shoes", "outerwear"],
+    "topK": 2
+  }'
+
+# Get recommendations with session tracking
+curl -X POST http://localhost:4000/api/recommendations \
+  -H "Content-Type: application/json" \
+  -H "x-session-id: session-1" \
+  -d '{
+    "baseSku": "119704139_1",
+    "customerId": "CUST-123",
+    "targetCategories": ["bottom", "shoes"]
+  }'
+
+
+# ==================== CATALOG ENDPOINTS ====================
+
+# View all catalog items
+curl http://localhost:4000/api/catalog
+
+# View only bottoms
+curl "http://localhost:4000/api/catalog?category=bottom"
+
+# View only shoes
+curl "http://localhost:4000/api/catalog?category=shoes"
+
+# View specific item details
+curl http://localhost:4000/api/catalog/119704139_1
+
+# View item details (khaki chinos)
+curl http://localhost:4000/api/catalog/120556789_1
+
+
+# ==================== TESTING FLOW ====================
+
+# Complete user flow:
+# 1. Customer scans blue shirt
+curl -X POST http://localhost:4000/api/session/scan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "session-test",
+    "sku": "119704139_1",
+    "name": "Classic Blue Slim-Fit Oxford Shirt",
+    "color": "blue",
+    "size": "M"
+  }'
+
+# 2. Get recommendations for that shirt
+curl -X POST http://localhost:4000/api/recommendations \
+  -H "Content-Type: application/json" \
+  -H "x-session-id: session-test" \
+  -d '{
+    "baseSku": "119704139_1",
+    "customerId": "CUST-123",
+    "targetCategories": ["bottom", "shoes"]
+  }'
+
+# 3. Customer requests a recommended item (khaki chinos in size 32)
+curl -X POST http://localhost:4000/api/request \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "session-test",
+    "sku": "120556789_1",
+    "requestedSize": "32",
+    "requestedColor": "khaki"
+  }'
+
+# 4. Staff checks requests
+curl http://localhost:4000/api/requests
+
+# 5. Staff marks as delivered
+curl -X POST http://localhost:4000/api/request/1/status \
+  -H "Content-Type: application/json" \
+  -d '{
+    "status": "Delivered"
+  }'
+
+# 6. Customer submits feedback
+curl -X POST http://localhost:4000/api/feedback \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "session-test",
+    "rating": 5,
+    "comment": "Loved the recommendations! The chinos matched perfectly."
+  }'
+
+# 7. Manager views analytics
+curl http://localhost:4000/api/analytics
