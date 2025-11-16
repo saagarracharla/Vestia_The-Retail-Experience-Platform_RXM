@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import ItemCard from "@/components/ItemCard";
 import Modal from "@/components/Modal";
 import SessionTimer from "@/components/SessionTimer";
-import WelcomeScreen from "@/components/WelcomeScreen";
 import {
   RecommendedOutfitsPlaceholder,
   MixAndMatchPlaceholder,
@@ -20,8 +20,8 @@ type Item = {
 
 const BACKEND_URL = "http://localhost:4000";
 
-export default function KioskPage() {
-  const [hasStartedSession, setHasStartedSession] = useState(false);
+export default function SessionKioskPage() {
+  const router = useRouter();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
   const [sku, setSku] = useState("");
@@ -41,37 +41,19 @@ export default function KioskPage() {
   const [feedbackRating, setFeedbackRating] = useState("5");
   const [feedbackComment, setFeedbackComment] = useState("");
 
-  // Always show welcome screen on page load
+  // Restore session or redirect to welcome
   useEffect(() => {
-    setHasStartedSession(false);
-  }, []);
+    const savedSessionId = localStorage.getItem("sessionId");
+    const savedStartTime = localStorage.getItem("sessionStartTime");
 
-  function initializeSession() {
-    if (!sessionId) {
-      const newSessionId = generateSessionId();
-      const startTime = new Date();
-      setSessionId(newSessionId);
-      setSessionStartTime(startTime);
-      localStorage.setItem("sessionId", newSessionId);
-      localStorage.setItem("sessionStartTime", startTime.toISOString());
+    if (savedSessionId && savedStartTime) {
+      setSessionId(savedSessionId);
+      setSessionStartTime(new Date(savedStartTime));
+      loadSession(savedSessionId);
+    } else {
+      router.push("/");
     }
-  }
-
-  function handleStartSession() {
-    // Initialize session when user clicks "Start scanning now"
-    initializeSession();
-    // If sessionId wasn't set yet, generate it now
-    if (!sessionId) {
-      const newSessionId = generateSessionId();
-      const startTime = new Date();
-      setSessionId(newSessionId);
-      setSessionStartTime(startTime);
-      localStorage.setItem("sessionId", newSessionId);
-      localStorage.setItem("sessionStartTime", startTime.toISOString());
-    }
-    // Show the main kiosk UI
-    setHasStartedSession(true);
-  }
+  }, [router]);
 
   async function loadSession(id: string) {
     try {
@@ -93,26 +75,14 @@ export default function KioskPage() {
       return;
     }
 
-    // Initialize session on first scan
-    if (!sessionId) {
-      initializeSession();
-    }
-
-    const currentSessionId = sessionId || generateSessionId();
-    if (!sessionId) {
-      const startTime = new Date();
-      setSessionId(currentSessionId);
-      setSessionStartTime(startTime);
-      localStorage.setItem("sessionId", currentSessionId);
-      localStorage.setItem("sessionStartTime", startTime.toISOString());
-    }
+    if (!sessionId) return;
 
     try {
       const res = await fetch(`${BACKEND_URL}/api/session/scan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sessionId: currentSessionId,
+          sessionId,
           sku,
           name,
           color,
@@ -229,9 +199,8 @@ export default function KioskPage() {
     }
   }
 
-  // Show welcome screen if session hasn't started
-  if (!hasStartedSession) {
-    return <WelcomeScreen />;
+  if (!sessionId) {
+    return <div>Loading...</div>;
   }
 
   return (
