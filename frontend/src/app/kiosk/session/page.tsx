@@ -250,8 +250,8 @@ export default function SessionKioskPage() {
     : [];
   const recommendations = generateMockRecommendations();
 
-  // Carousel logic for bottom 2 items when more than 3 total
-  const showCarousel = items.length > 3;
+  // Carousel logic for bottom 2 items when more than 2 total
+  const showCarousel = previousItems.length > 2;
   const visiblePreviousItems = showCarousel 
     ? previousItems.slice(carouselIndex, carouselIndex + 2)
     : previousItems.slice(0, 2);
@@ -281,9 +281,9 @@ export default function SessionKioskPage() {
       </div>
 
       {/* Main Layout */}
-      <div className="flex gap-8 p-8 h-[calc(100vh-80px)]">
-        {/* Left Column - 65% */}
-        <div className="flex-1 flex flex-col space-y-4" style={{ flexBasis: "65%" }}>
+      <div className="flex gap-8 p-8" style={{ height: "calc(100vh - 80px)" }}>
+        {/* Left Column - 55% */}
+        <div className="flex-1 flex flex-col space-y-4" style={{ flexBasis: "55%" }}>
           {/* Scan Item Banner - Compact */}
           <div className="bg-[#FDF7EF] rounded-xl p-4 border border-[#E5D5C8]">
             <h2 className="text-lg font-semibold text-[#3B2A21] mb-3">Scan item</h2>
@@ -344,7 +344,7 @@ export default function SessionKioskPage() {
                 {mainItem && (
                   <div className="bg-[#FDF7EF] rounded-2xl p-8 border border-[#E5D5C8]">
                     <div className="flex gap-8">
-                      <div className="w-48 h-48 bg-[#E5D5C8] rounded-xl flex items-center justify-center">
+                      <div className="w-40 h-56 bg-[#E5D5C8] rounded-xl flex items-center justify-center">
                         <span className="text-[#3B2A21] text-lg">Image</span>
                       </div>
                       <div className="flex-1">
@@ -375,28 +375,28 @@ export default function SessionKioskPage() {
                   </div>
                 )}
 
-                {/* Previous Items - Larger Cards with Carousel */}
+                {/* Previous Items - Fixed Height Carousel */}
                 {visiblePreviousItems.length > 0 && (
-                  <div className="relative">
-                    <div className="grid grid-cols-2 gap-6">
+                  <div className="relative h-32">
+                    <div className="grid grid-cols-2 gap-6 h-full">
                       {visiblePreviousItems.map((item, index) => {
                         const originalIndex = items.findIndex(i => i === item);
                         return (
                           <div 
                             key={`${item.sku}-${index}`} 
                             onClick={() => setSelectedMainIndex(originalIndex)}
-                            className="bg-[#FDF7EF] rounded-xl p-6 border border-[#E5D5C8] cursor-pointer hover:bg-[#F5E9DA] transition-all"
+                            className="bg-[#FDF7EF] rounded-xl p-4 border border-[#E5D5C8] cursor-pointer hover:bg-[#F5E9DA] transition-all h-full"
                           >
-                            <div className="flex gap-4">
-                              <div className="w-20 h-20 bg-[#E5D5C8] rounded-lg flex items-center justify-center">
-                                <span className="text-[#3B2A21] text-sm">Img</span>
+                            <div className="flex gap-3 h-full">
+                              <div className="w-12 h-16 bg-[#E5D5C8] rounded-lg flex items-center justify-center flex-shrink-0">
+                                <span className="text-[#3B2A21] text-xs">Img</span>
                               </div>
-                              <div className="flex-1">
-                                <h4 className="font-semibold text-[#3B2A21] text-base mb-2">{item.name}</h4>
-                                <div className="flex flex-wrap gap-2 mb-2">
-                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">{item.color}</span>
-                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">Size {item.size}</span>
-                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">$75</span>
+                              <div className="flex-1 min-w-0">
+                                <h4 className="font-medium text-[#3B2A21] text-sm mb-1 truncate">{item.name}</h4>
+                                <div className="flex flex-wrap gap-1">
+                                  <span className="px-2 py-0.5 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full">{item.color}</span>
+                                  <span className="px-2 py-0.5 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full">Size {item.size}</span>
+                                  <span className="px-2 py-0.5 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full">$75</span>
                                 </div>
                               </div>
                             </div>
@@ -411,7 +411,7 @@ export default function SessionKioskPage() {
                         <button
                           onClick={() => setCarouselIndex(Math.max(0, carouselIndex - 2))}
                           disabled={!canScrollLeft}
-                          className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-6 w-10 h-10 rounded-full flex items-center justify-center transition-all text-lg ${
+                          className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-6 w-8 h-8 rounded-full flex items-center justify-center transition-all ${
                             canScrollLeft 
                               ? 'bg-[#4A3A2E] text-[#FDF7EF] hover:bg-[#3B2A21]' 
                               : 'bg-[#E5D5C8] text-[#3B2A21] opacity-50 cursor-not-allowed'
@@ -422,7 +422,7 @@ export default function SessionKioskPage() {
                         <button
                           onClick={() => setCarouselIndex(carouselIndex + 2)}
                           disabled={!canScrollRight}
-                          className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-6 w-10 h-10 rounded-full flex items-center justify-center transition-all text-lg ${
+                          className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-6 w-8 h-8 rounded-full flex items-center justify-center transition-all ${
                             canScrollRight 
                               ? 'bg-[#4A3A2E] text-[#FDF7EF] hover:bg-[#3B2A21]' 
                               : 'bg-[#E5D5C8] text-[#3B2A21] opacity-50 cursor-not-allowed'
@@ -439,31 +439,31 @@ export default function SessionKioskPage() {
           </div>
         </div>
 
-        {/* Right Column - 35% */}
-        <div className="flex-1 space-y-6" style={{ flexBasis: "35%" }}>
-          <div>
-            <h2 className="text-2xl font-semibold text-[#3B2A21] mb-4">Recommended for this item</h2>
+        {/* Right Column - 45% */}
+        <div className="relative h-full" style={{ flexBasis: "45%" }}>
+          <div className="absolute inset-0 flex flex-col bg-[#FDF7EF] rounded-2xl border border-[#E5D5C8] p-6">
+            <h2 className="text-3xl font-semibold text-[#3B2A21] mb-6 flex-shrink-0">Recommended for this item</h2>
             
             {recommendations.length === 0 ? (
-              <div className="bg-[#FDF7EF] rounded-2xl p-8 border border-[#E5D5C8] text-center">
+              <div className="flex-1 flex items-center justify-center">
                 <p className="text-[#3B2A21]">Scan an item to see outfit recommendations</p>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-4">
                 {recommendations.map((rec) => (
-                  <div key={rec.id} className="bg-[#FDF7EF] rounded-xl p-4 border border-[#E5D5C8]">
-                    <div className="flex gap-3">
-                      <div className="w-20 h-28 bg-[#E5D5C8] rounded-lg flex items-center justify-center flex-shrink-0">
+                <div key={rec.id} className="bg-white rounded-xl p-4 border border-[#E5D5C8] flex flex-col">
+                    <div className="flex gap-3 flex-1">
+                      <div className="w-20 flex-1 bg-[#E5D5C8] rounded-lg flex items-center justify-center flex-shrink-0">
                         <span className="text-[#3B2A21] text-xs">Image</span>
                       </div>
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 flex flex-col">
                         <h4 className="font-medium text-[#3B2A21] text-sm mb-3 truncate">{rec.name}</h4>
-                        <div className="flex flex-col gap-2 mb-3">
+                        <div className="flex flex-col gap-2 flex-1">
                           <span className="px-2 py-1 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full w-fit">{rec.color}</span>
                           <span className="px-2 py-1 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full w-fit">{rec.size}</span>
                           <span className="px-2 py-1 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full w-fit">{rec.price}</span>
                         </div>
-                        <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-2 mt-auto">
                           <button className="text-xs bg-[#4A3A2E] text-[#FDF7EF] rounded-md py-1 hover:bg-[#3B2A21] transition-all">
                             ☆ Save
                           </button>
@@ -475,8 +475,8 @@ export default function SessionKioskPage() {
                     </div>
                   </div>
                 ))}
-              </div>
-            )}
+            </div>
+          )}
           </div>
         </div>
       </div>
