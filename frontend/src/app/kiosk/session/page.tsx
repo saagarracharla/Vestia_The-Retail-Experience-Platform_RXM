@@ -250,14 +250,8 @@ export default function SessionKioskPage() {
     : [];
   const recommendations = generateMockRecommendations();
 
-  // Carousel logic for bottom 2 items when more than 2 total
+  // Carousel logic - show arrows when there are more than 2 items to scroll through
   const showCarousel = previousItems.length > 2;
-  const visiblePreviousItems = showCarousel 
-    ? previousItems.slice(carouselIndex, carouselIndex + 2)
-    : previousItems.slice(0, 2);
-
-  const canScrollLeft = carouselIndex > 0;
-  const canScrollRight = carouselIndex + 2 < previousItems.length;
 
   if (!sessionId) {
     return <div>Loading...</div>;
@@ -375,17 +369,40 @@ export default function SessionKioskPage() {
                   </div>
                 )}
 
-                {/* Previous Items - Fixed Height Carousel */}
-                {visiblePreviousItems.length > 0 && (
+                {/* Previous Items - Scrollable Carousel with Arrows */}
+                {previousItems.length > 0 && (
                   <div className="relative h-32">
-                    <div className="grid grid-cols-2 gap-6 h-full">
-                      {visiblePreviousItems.map((item, index) => {
+                    <div 
+                      className="flex gap-4 overflow-x-auto scrollbar-hide drag-scroll h-full"
+                      style={{ scrollBehavior: 'smooth' }}
+                      onMouseDown={(e) => {
+                        const container = e.currentTarget;
+                        const startX = e.pageX - container.offsetLeft;
+                        const scrollLeft = container.scrollLeft;
+                        
+                        const handleMouseMove = (e: MouseEvent) => {
+                          const x = e.pageX - container.offsetLeft;
+                          const walk = (x - startX) * 2;
+                          container.scrollLeft = scrollLeft - walk;
+                        };
+                        
+                        const handleMouseUp = () => {
+                          document.removeEventListener('mousemove', handleMouseMove);
+                          document.removeEventListener('mouseup', handleMouseUp);
+                        };
+                        
+                        document.addEventListener('mousemove', handleMouseMove);
+                        document.addEventListener('mouseup', handleMouseUp);
+                      }}
+                    >
+                      {previousItems.map((item, index) => {
                         const originalIndex = items.findIndex(i => i === item);
                         return (
                           <div 
                             key={`${item.sku}-${index}`} 
                             onClick={() => setSelectedMainIndex(originalIndex)}
-                            className="bg-[#FDF7EF] rounded-xl p-4 border border-[#E5D5C8] cursor-pointer hover:bg-[#F5E9DA] transition-all h-full"
+                            className="bg-[#FDF7EF] rounded-xl p-4 border border-[#E5D5C8] cursor-pointer hover:bg-[#F5E9DA] transition-all flex-shrink-0 clickable"
+                            style={{ minWidth: 'calc(50% - 8px)' }}
                           >
                             <div className="flex gap-3 h-full">
                               <div className="w-12 h-16 bg-[#E5D5C8] rounded-lg flex items-center justify-center flex-shrink-0">
@@ -409,24 +426,24 @@ export default function SessionKioskPage() {
                     {showCarousel && (
                       <>
                         <button
-                          onClick={() => setCarouselIndex(Math.max(0, carouselIndex - 2))}
-                          disabled={!canScrollLeft}
-                          className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-6 w-8 h-8 rounded-full flex items-center justify-center transition-all ${
-                            canScrollLeft 
-                              ? 'bg-[#4A3A2E] text-[#FDF7EF] hover:bg-[#3B2A21]' 
-                              : 'bg-[#E5D5C8] text-[#3B2A21] opacity-50 cursor-not-allowed'
-                          }`}
+                          onClick={() => {
+                            const container = document.querySelector('.overflow-x-auto');
+                            if (container) {
+                              container.scrollBy({ left: -200, behavior: 'smooth' });
+                            }
+                          }}
+                          className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-6 w-8 h-8 rounded-full flex items-center justify-center transition-all bg-[#4A3A2E] text-[#FDF7EF] hover:bg-[#3B2A21]"
                         >
                           ←
                         </button>
                         <button
-                          onClick={() => setCarouselIndex(carouselIndex + 2)}
-                          disabled={!canScrollRight}
-                          className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-6 w-8 h-8 rounded-full flex items-center justify-center transition-all ${
-                            canScrollRight 
-                              ? 'bg-[#4A3A2E] text-[#FDF7EF] hover:bg-[#3B2A21]' 
-                              : 'bg-[#E5D5C8] text-[#3B2A21] opacity-50 cursor-not-allowed'
-                          }`}
+                          onClick={() => {
+                            const container = document.querySelector('.overflow-x-auto');
+                            if (container) {
+                              container.scrollBy({ left: 200, behavior: 'smooth' });
+                            }
+                          }}
+                          className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-6 w-8 h-8 rounded-full flex items-center justify-center transition-all bg-[#4A3A2E] text-[#FDF7EF] hover:bg-[#3B2A21]"
                         >
                           →
                         </button>

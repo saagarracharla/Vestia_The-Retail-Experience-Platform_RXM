@@ -30,6 +30,21 @@ body {
   display: none;
 }
 
+/* Drag Scroll Utility */
+.drag-scroll {
+  cursor: grab;
+  user-select: none;
+}
+.drag-scroll:active {
+  cursor: grabbing;
+}
+.drag-scroll * {
+  pointer-events: none;
+}
+.drag-scroll .clickable {
+  pointer-events: auto;
+}
+
 /* Welcome Screen Animations */
 @keyframes fade-in-up {
   from {
