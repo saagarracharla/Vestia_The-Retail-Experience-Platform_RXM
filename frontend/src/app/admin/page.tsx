@@ -71,136 +71,139 @@ export default function AdminPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const getStatusColor = (status: string) => {
+  const getStatusStyles = (status: string) => {
     switch (status) {
       case "Queued":
-        return "bg-blue-100 text-blue-700 border-blue-300";
+        return "bg-[#EFE1CA] text-[#7A4F2B]";
       case "PickedUp":
-        return "bg-amber-100 text-amber-700 border-amber-300";
+        return "bg-[#E1D2C2] text-[#5B3D1C]";
       case "Delivered":
-        return "bg-emerald-100 text-emerald-700 border-emerald-300";
+        return "bg-[#D8E3CF] text-[#2B5734]";
       case "Cancelled":
-        return "bg-red-100 text-red-700 border-red-300";
+        return "bg-[#F4D5CB] text-[#8C3B2D]";
       default:
-        return "bg-gray-100 text-gray-700 border-gray-300";
+        return "bg-[#EEE3D2] text-[#5B3D1C]";
     }
   };
 
+  const formatStatus = (status: string) => {
+    if (status === "PickedUp") return "Picked Up";
+    return status;
+  };
+
   return (
-    <div className="min-h-screen bg-[#F5F5F5]">
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-semibold text-gray-900 mb-2">
+    <div className="min-h-screen bg-[#F7E9D3]">
+      <div className="max-w-7xl mx-auto px-6 py-10">
+        <div className="rounded-3xl bg-[#FDF6E6] border border-[#E3C89C] shadow-[0_15px_50px_rgba(90,64,34,0.1)] px-8 py-10 mb-8">
+          <p className="text-sm uppercase tracking-[0.4em] text-[#B08858]">
+            Vestia Staff
+          </p>
+          <h1 className="text-5xl font-serif text-[#4F2F14] mt-4 mb-4">
             Staff Dashboard
           </h1>
-          <p className="text-gray-600">
-            Manage fitting room requests and track deliveries
+          <p className="text-[#8C6A4B] text-lg max-w-2xl">
+            Review active fitting room requests and keep guests updated as their
+            items move through the queue.
           </p>
         </div>
 
         {message && (
           <div
-            className={`mb-6 p-4 rounded-xl border ${
+            className={`mb-6 p-4 rounded-2xl border-l-4 ${
               messageType === "success"
-                ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                : "bg-red-50 border-red-200 text-red-700"
+                ? "bg-[#E1F2DB] border-l-emerald-400 text-[#205530]"
+                : "bg-[#FDE7E2] border-l-[#E26C4C] text-[#7A2F1B]"
             }`}
           >
             {message}
           </div>
         )}
 
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-semibold text-gray-900">
-            Active Requests ({requests.length})
-          </h2>
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
+          <div>
+            <h2 className="text-3xl font-serif text-[#4F2F14]">
+              Active Requests{" "}
+              <span className="text-[#B08455]">({requests.length})</span>
+            </h2>
+            <p className="text-[#9A7551]">
+              Updated automatically every few seconds
+            </p>
+          </div>
           <button
             onClick={loadRequests}
             disabled={loading}
-            className="px-4 py-2 bg-[#0066CC] hover:bg-[#0052A3] text-white font-medium rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+            className="px-8 py-3 bg-[#8A623C] text-[#FFF7EB] rounded-full font-semibold shadow-lg shadow-[#C09A72]/50 hover:bg-[#714E2F] transition disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {loading ? "Refreshing..." : "Refresh"}
           </button>
         </div>
 
         {loading && requests.length === 0 ? (
-          <div className="bg-white rounded-xl p-12 border border-gray-200 text-center shadow-sm">
-            <p className="text-gray-500">Loading requests...</p>
+          <div className="bg-[#FFF8EC] rounded-3xl p-12 border border-[#EBD7B9] text-center shadow-inner">
+            <p className="text-[#B08455] text-lg">Loading requests...</p>
           </div>
         ) : requests.length === 0 ? (
-          <div className="bg-white rounded-xl p-12 border border-gray-200 text-center shadow-sm">
-            <p className="text-gray-500">
+          <div className="bg-[#FFF8EC] rounded-3xl p-12 border border-[#EBD7B9] text-center shadow-inner">
+            <p className="text-[#9A7551] text-lg max-w-2xl mx-auto">
               No active requests. They'll appear here in real time as customers
               request items from the kiosk.
             </p>
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
+          <div className="rounded-3xl border border-[#E4CCAA] bg-[#FFF8EC] shadow-lg shadow-[#BA8E5F]/10 overflow-hidden">
+            <div className="w-full">
               <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
+                <thead className="bg-[#F1DDC0] text-[#5B3D1C] text-left uppercase text-xs tracking-[0.2em]">
                   <tr>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 uppercase tracking-wide">
-                      ID
-                    </th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 uppercase tracking-wide">
-                      Session ID
-                    </th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 uppercase tracking-wide">
-                      SKU
-                    </th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 uppercase tracking-wide">
-                      Requested Size
-                    </th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 uppercase tracking-wide">
-                      Requested Color
-                    </th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 uppercase tracking-wide">
-                      Status
-                    </th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 uppercase tracking-wide">
-                      Actions
-                    </th>
+                    {["ID", "Session ID", "SKU", "Requested Size", "Requested Colour", "Status", "Actions"].map(
+                      (heading) => (
+                        <th key={heading} className="px-8 py-4 font-semibold">
+                          {heading}
+                        </th>
+                      )
+                    )}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {requests.map((r) => (
+                <tbody>
+                  {requests.map((r, index) => (
                     <tr
                       key={r.id}
-                      className="hover:bg-gray-50 transition-colors duration-150"
+                      className={`${
+                        index % 2 === 0 ? "bg-[#FFF4E0]" : "bg-[#FFF8EC]"
+                      } border-t border-[#F2E0C6]`}
                     >
-                      <td className="px-6 py-4 text-gray-900 font-medium">
+                      <td className="px-8 py-5 text-[#4F2F14] font-semibold">
                         #{r.id}
                       </td>
-                      <td className="px-6 py-4">
-                        <code className="text-xs bg-gray-100 text-[#0066CC] px-2 py-1 rounded font-mono">
+                      <td className="px-8 py-5">
+                        <span className="text-xs tracking-wide font-mono bg-[#F8EAD1] text-[#8A623C] px-3 py-1 rounded-full">
                           {r.sessionId}
-                        </code>
+                        </span>
                       </td>
-                      <td className="px-6 py-4 text-gray-900 font-medium">
+                      <td className="px-8 py-5 text-[#4F2F14] font-semibold">
                         {r.sku}
                       </td>
-                      <td className="px-6 py-4 text-gray-600">
-                        {r.requestedSize || "-"}
+                      <td className="px-8 py-5 text-[#7A4F2B]">
+                        {r.requestedSize || "—"}
                       </td>
-                      <td className="px-6 py-4 text-gray-600">
-                        {r.requestedColor || "-"}
+                      <td className="px-8 py-5 text-[#7A4F2B]">
+                        {r.requestedColor || "—"}
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-8 py-5">
                         <span
-                          className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(
+                          className={`inline-flex px-4 py-1.5 rounded-full text-sm font-semibold ${getStatusStyles(
                             r.status
                           )}`}
                         >
-                          {r.status}
+                          {formatStatus(r.status)}
                         </span>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex gap-2">
+                      <td className="px-8 py-5">
+                        <div className="flex gap-2 items-center flex-nowrap">
                           {r.status !== "Delivered" && (
                             <button
                               onClick={() => updateRequestStatus(r.id, "Delivered")}
-                              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-lg transition-all duration-200 text-sm shadow-sm"
+                              className="px-4 py-2 rounded-full text-sm font-semibold bg-[#C7A070] text-[#3F250F] hover:bg-[#B88D57] transition whitespace-nowrap"
                             >
                               Mark Delivered
                             </button>
@@ -208,15 +211,15 @@ export default function AdminPage() {
                           {r.status === "Queued" && (
                             <button
                               onClick={() => updateRequestStatus(r.id, "PickedUp")}
-                              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-medium rounded-lg transition-all duration-200 text-sm shadow-sm"
+                              className="px-4 py-2 rounded-full text-sm font-semibold bg-[#E2C291] text-[#3F250F] hover:bg-[#D5AF75] transition whitespace-nowrap"
                             >
-                              Picked Up
+                              Pick Up
                             </button>
                           )}
                           {r.status !== "Cancelled" && r.status !== "Delivered" && (
                             <button
                               onClick={() => updateRequestStatus(r.id, "Cancelled")}
-                              className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white font-medium rounded-lg transition-all duration-200 text-sm shadow-sm"
+                              className="px-4 py-2 rounded-full text-sm font-semibold bg-[#B86B4D] text-[#FFF7EB] hover:bg-[#A5553B] transition whitespace-nowrap"
                             >
                               Cancel
                             </button>
