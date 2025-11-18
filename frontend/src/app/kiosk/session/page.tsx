@@ -275,9 +275,9 @@ export default function SessionKioskPage() {
       </div>
 
       {/* Main Layout */}
-      <div className="flex gap-8 p-8" style={{ height: "calc(100vh - 80px)" }}>
+      <div className="flex gap-8 p-8 w-full max-w-none" style={{ height: "calc(100vh - 80px)" }}>
         {/* Left Column - 55% */}
-        <div className="flex-1 flex flex-col space-y-4" style={{ flexBasis: "55%" }}>
+        <div className="flex flex-col space-y-4 overflow-hidden" style={{ flexBasis: "55%", width: "55%", maxWidth: "55%" }}>
           {/* Scan Item Banner - Compact */}
           <div className="bg-[#FDF7EF] rounded-xl p-4 border border-[#E5D5C8]">
             <h2 className="text-lg font-semibold text-[#3B2A21] mb-3">Scan item</h2>
@@ -371,9 +371,9 @@ export default function SessionKioskPage() {
 
                 {/* Previous Items - Scrollable Carousel with Arrows */}
                 {previousItems.length > 0 && (
-                  <div className="relative h-32">
+                  <div className="relative h-32 w-full max-w-full overflow-hidden">
                     <div 
-                      className="flex gap-4 overflow-x-auto scrollbar-hide drag-scroll h-full"
+                      className="flex gap-4 overflow-x-auto scrollbar-hide drag-scroll h-full snap-x snap-mandatory"
                       style={{ scrollBehavior: 'smooth' }}
                       onMouseDown={(e) => {
                         const container = e.currentTarget;
@@ -401,7 +401,7 @@ export default function SessionKioskPage() {
                           <div 
                             key={`${item.sku}-${index}`} 
                             onClick={() => setSelectedMainIndex(originalIndex)}
-                            className="bg-[#FDF7EF] rounded-xl p-4 border border-[#E5D5C8] cursor-pointer hover:bg-[#F5E9DA] transition-all flex-shrink-0 clickable"
+                            className="bg-[#FDF7EF] rounded-xl p-4 border border-[#E5D5C8] cursor-pointer hover:bg-[#F5E9DA] transition-all flex-shrink-0 clickable snap-start"
                             style={{ minWidth: 'calc(50% - 8px)' }}
                           >
                             <div className="flex gap-3 h-full">
@@ -429,7 +429,8 @@ export default function SessionKioskPage() {
                           onClick={() => {
                             const container = document.querySelector('.overflow-x-auto');
                             if (container) {
-                              container.scrollBy({ left: -200, behavior: 'smooth' });
+                              const cardWidth = container.clientWidth;
+                              container.scrollBy({ left: -cardWidth, behavior: 'smooth' });
                             }
                           }}
                           className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-6 w-8 h-8 rounded-full flex items-center justify-center transition-all bg-[#4A3A2E] text-[#FDF7EF] hover:bg-[#3B2A21]"
@@ -440,7 +441,8 @@ export default function SessionKioskPage() {
                           onClick={() => {
                             const container = document.querySelector('.overflow-x-auto');
                             if (container) {
-                              container.scrollBy({ left: 200, behavior: 'smooth' });
+                              const cardWidth = container.clientWidth;
+                              container.scrollBy({ left: cardWidth, behavior: 'smooth' });
                             }
                           }}
                           className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-6 w-8 h-8 rounded-full flex items-center justify-center transition-all bg-[#4A3A2E] text-[#FDF7EF] hover:bg-[#3B2A21]"
@@ -457,7 +459,7 @@ export default function SessionKioskPage() {
         </div>
 
         {/* Right Column - 45% */}
-        <div className="relative h-full" style={{ flexBasis: "45%" }}>
+        <div className="relative h-full overflow-hidden" style={{ flexBasis: "45%", width: "45%", maxWidth: "45%" }}>
           <div className="absolute inset-0 flex flex-col bg-[#FDF7EF] rounded-2xl border border-[#E5D5C8] p-6">
             <h2 className="text-3xl font-semibold text-[#3B2A21] mb-6 flex-shrink-0">Recommended for this item</h2>
             
