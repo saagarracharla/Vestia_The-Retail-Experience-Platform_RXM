@@ -34,7 +34,6 @@ export default function SessionKioskPage() {
   const [size, setSize] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [selectedMainIndex, setSelectedMainIndex] = useState<number>(-1);
-  const [carouselIndex, setCarouselIndex] = useState(0);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("success");
 
@@ -250,9 +249,6 @@ export default function SessionKioskPage() {
     : [];
   const recommendations = generateMockRecommendations();
 
-  // Carousel logic - show arrows when there are more than 2 items to scroll through
-  const showCarousel = previousItems.length > 2;
-
   if (!sessionId) {
     return <div>Loading...</div>;
   }
@@ -421,36 +417,6 @@ export default function SessionKioskPage() {
                         );
                       })}
                     </div>
-
-                    {/* Carousel Arrows */}
-                    {showCarousel && (
-                      <>
-                        <button
-                          onClick={() => {
-                            const container = document.querySelector('.overflow-x-auto');
-                            if (container) {
-                              const cardWidth = container.clientWidth;
-                              container.scrollBy({ left: -cardWidth, behavior: 'smooth' });
-                            }
-                          }}
-                          className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-6 w-8 h-8 rounded-full flex items-center justify-center transition-all bg-[#4A3A2E] text-[#FDF7EF] hover:bg-[#3B2A21]"
-                        >
-                          ←
-                        </button>
-                        <button
-                          onClick={() => {
-                            const container = document.querySelector('.overflow-x-auto');
-                            if (container) {
-                              const cardWidth = container.clientWidth;
-                              container.scrollBy({ left: cardWidth, behavior: 'smooth' });
-                            }
-                          }}
-                          className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-6 w-8 h-8 rounded-full flex items-center justify-center transition-all bg-[#4A3A2E] text-[#FDF7EF] hover:bg-[#3B2A21]"
-                        >
-                          →
-                        </button>
-                      </>
-                    )}
                   </div>
                 )}
               </div>
