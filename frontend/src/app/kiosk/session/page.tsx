@@ -401,15 +401,18 @@ export default function SessionKioskPage() {
                             style={{ minWidth: 'calc(50% - 8px)' }}
                           >
                             <div className="flex gap-3 h-full">
-                              <div className="w-12 h-16 bg-[#E5D5C8] rounded-lg flex items-center justify-center flex-shrink-0">
-                                <span className="text-[#3B2A21] text-xs">Img</span>
+                              <div className="w-20 h-24 bg-[#E5D5C8] rounded-lg flex items-center justify-center flex-shrink-0">
+                                <span className="text-[#3B2A21] text-sm">Img</span>
                               </div>
-                              <div className="flex-1 min-w-0">
-                                <h4 className="font-medium text-[#3B2A21] text-sm mb-1 truncate">{item.name}</h4>
-                                <div className="flex flex-wrap gap-1">
-                                  <span className="px-2 py-0.5 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full">{item.color}</span>
-                                  <span className="px-2 py-0.5 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full">Size {item.size}</span>
-                                  <span className="px-2 py-0.5 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full">$75</span>
+                              <div className="flex-1 min-w-0 flex flex-col justify-between">
+                                <div>
+                                  <h4 className="font-semibold text-[#3B2A21] text-base mb-2 truncate">{item.name}</h4>
+                                  <p className="text-[#3B2A21] text-sm mb-2">SKU: {item.sku}</p>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">{item.color}</span>
+                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">Size {item.size}</span>
+                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">$75</span>
                                 </div>
                               </div>
                             </div>
