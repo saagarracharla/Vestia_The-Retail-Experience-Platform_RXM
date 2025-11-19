@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Modal from "@/components/Modal";
 import SessionTimer from "@/components/SessionTimer";
 import { generateSessionId } from "@/utils/sessionId";
+import { ITEMS_BY_SKU } from "@/data/items";
 
 type Item = {
   sku: string;
@@ -82,38 +83,23 @@ export default function SessionKioskPage() {
       return;
     }
 
-    if (!sessionId) return;
-
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/session/scan`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          sku,
-          name,
-          color,
-          size,
-        }),
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json();
-        setMessage(errorData.error || "Failed to scan item.");
-        setMessageType("error");
-        return;
-      }
-
-      const data = await res.json();
-      setItems(data.items || []);
-      setSelectedMainIndex((data.items || []).length - 1); // Set newest item as main
+    // Look up item in hardcoded data
+    const foundItem = ITEMS_BY_SKU[sku];
+    if (foundItem) {
+      const newItem: Item = {
+        sku: foundItem.sku,
+        name: foundItem.name,
+        color: "Default",
+        size: foundItem.size,
+      };
+      
+      setItems(prev => [...prev, newItem]);
+      setSelectedMainIndex(items.length); // Select the newly added item
+      setMessage(`Scanned: ${foundItem.name}`);
+      setMessageType("success");
       setSku("");
-      setName("");
-      setColor("");
-      setSize("");
-    } catch (err) {
-      console.error(err);
-      setMessage("Network error while scanning item.");
+    } else {
+      setMessage(`SKU "${sku}" not found. Try: 111, 222, 333, or 444`);
       setMessageType("error");
     }
   }
@@ -276,43 +262,22 @@ export default function SessionKioskPage() {
         <div className="flex flex-col space-y-4 overflow-hidden" style={{ flexBasis: "55%", width: "55%", maxWidth: "55%" }}>
           {/* Scan Item Banner - Compact */}
           <div className="bg-[#FDF7EF] rounded-xl p-4 border border-[#E5D5C8]">
-            <h2 className="text-lg font-semibold text-[#3B2A21] mb-3">Scan item</h2>
-            <div className="grid grid-cols-4 gap-3 mb-3">
+            <h2 className="text-lg font-semibold text-[#3B2A21] mb-3">Enter SKU</h2>
+            <div className="flex gap-3 mb-3">
               <input
                 type="text"
                 value={sku}
                 onChange={(e) => setSku(e.target.value)}
-                placeholder="SKU *"
-                className="bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm"
+                placeholder="Enter SKU (111, 222, 333, or 444)"
+                className="flex-1 bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm"
               />
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Name"
-                className="bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm"
-              />
-              <input
-                type="text"
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
-                placeholder="Color"
-                className="bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm"
-              />
-              <input
-                type="text"
-                value={size}
-                onChange={(e) => setSize(e.target.value)}
-                placeholder="Size"
-                className="bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm"
-              />
+              <button
+                onClick={handleScan}
+                className="px-6 py-2 bg-[#4A3A2E] hover:bg-[#3B2A21] text-[#FDF7EF] font-medium rounded-md transition-all text-sm"
+              >
+                Scan Item
+              </button>
             </div>
-            <button
-              onClick={handleScan}
-              className="px-6 py-2 bg-[#4A3A2E] hover:bg-[#3B2A21] text-[#FDF7EF] font-medium rounded-md transition-all text-sm"
-            >
-              Scan Item
-            </button>
           </div>
 
           {/* Your Items Section - Maximized */}
