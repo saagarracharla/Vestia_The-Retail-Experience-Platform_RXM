@@ -76,83 +76,51 @@ export default function SessionKioskPage() {
     }
   }, [router]);
 
-  // Poll for request status updates
+  // Listen for notifications from admin panel via localStorage
   useEffect(() => {
-    if (!sessionId || pendingRequests.length === 0) return;
-
-    const pollInterval = setInterval(async () => {
-      try {
-        const res = await fetch(`${BACKEND_URL}/api/requests/status/${sessionId}`);
-        if (res.ok) {
-          const updates = await res.json();
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'kioskNotification' && e.newValue) {
+        try {
+          const notificationData = JSON.parse(e.newValue);
+          console.log("Received notification from admin:", notificationData);
           
-          updates.forEach((update: any) => {
-            const pendingRequest = pendingRequests.find(req => req.id === (update.requestId || update.id?.toString()));
-            if (pendingRequest) {
-              if (update.status === "PickedUp" || update.status === "picked_up") {
-                setNotification({
-                  message: `${pendingRequest.itemName} (${pendingRequest.color}, Size ${pendingRequest.size}) - An store associate picked it up and is on the way`,
-                  type: "success"
-                });
-              } else if (update.status === "Cancelled" || update.status === "cancelled") {
-                setNotification({
-                  message: `${pendingRequest.itemName} (${pendingRequest.color}, Size ${pendingRequest.size}) - Employee is unable to fulfill request and cancelling`,
-                  type: "error"
-                });
-              }
-              
-              // Remove from pending requests
-              setPendingRequests(prev => prev.filter(req => req.id !== pendingRequest.id));
+          // Find the pending request
+          const pendingRequest = pendingRequests.find(req => req.id === notificationData.requestId.toString());
+          
+          if (pendingRequest) {
+            console.log("Found matching pending request:", pendingRequest);
+            
+            if (notificationData.status === "PickedUp") {
+              console.log("Showing SUCCESS notification for pickup");
+              setNotification({
+                message: `${pendingRequest.itemName} (${pendingRequest.color}, Size ${pendingRequest.size}) - Store associate picked it up and is on the way`,
+                type: "success"
+              });
+            } else if (notificationData.status === "Cancelled") {
+              console.log("Showing ERROR notification for cancellation");
+              setNotification({
+                message: `${pendingRequest.itemName} (${pendingRequest.color}, Size ${pendingRequest.size}) - Employee is unable to fulfill request and cancelling`,
+                type: "error"
+              });
             }
-          });
+            
+            // Remove from pending requests
+            setPendingRequests(prev => prev.filter(req => req.id !== pendingRequest.id));
+            
+            // Clear the notification from localStorage
+            localStorage.removeItem('kioskNotification');
+          }
+        } catch (err) {
+          console.error("Error processing notification:", err);
         }
-      } catch (err) {
-        console.error("Failed to poll request status:", err);
       }
-    }, 1000); // Poll every 1 second for faster notifications
-
-    return () => clearInterval(pollInterval);
-  }, [sessionId, pendingRequests]);
-
-  // Mock request status updates for testing (fallback if backend not available)
-  const [mockRequests, setMockRequests] = useState<{[key: string]: string}>({}); // requestId -> status
-
-  // Simulate employee actions for testing
-  useEffect(() => {
-    if (pendingRequests.length === 0) return;
-
-    // Simulate random employee actions after 10-20 seconds
-    const timeouts = pendingRequests.map(request => {
-      if (mockRequests[request.id]) return null; // Already processed
-      
-      const delay = Math.random() * 10000 + 10000; // 10-20 seconds
-      return setTimeout(() => {
-        const actions = ["picked_up", "cancelled"];
-        const randomAction = actions[Math.floor(Math.random() * actions.length)];
-        
-        setMockRequests(prev => ({...prev, [request.id]: randomAction}));
-        
-        if (randomAction === "picked_up") {
-          setNotification({
-            message: `${request.itemName} (${request.color}, Size ${request.size}) - Store associate picked it up and is on the way`,
-            type: "success"
-          });
-        } else {
-          setNotification({
-            message: `${request.itemName} (${request.color}, Size ${request.size}) - Employee is unable to fulfill request and cancelling`, 
-            type: "error"
-          });
-        }
-        
-        // Remove from pending
-        setPendingRequests(prev => prev.filter(req => req.id !== request.id));
-      }, delay);
-    });
-
-    return () => {
-      timeouts.forEach(timeout => timeout && clearTimeout(timeout));
     };
-  }, [pendingRequests, mockRequests]);
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [pendingRequests]);
+
+  // Mock system removed - notifications will work when backend implements /api/requests/status endpoint
 
   async function loadSession(id: string) {
     try {

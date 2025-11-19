@@ -87,6 +87,25 @@ app.post("/api/request/:id/status", (req, res) => {
   res.json(request);
 });
 
+// Get request status updates for a session (for kiosk notifications)
+app.get("/api/requests/status/:sessionId", (req, res) => {
+  const sessionId = req.params.sessionId;
+  
+  // Find requests for this session that have been updated recently
+  const sessionRequests = requests.filter(r => r.sessionId === sessionId);
+  
+  // Return all requests with their current status
+  // In a real system, you'd track which updates are "new" since last check
+  const updates = sessionRequests.map(request => ({
+    requestId: request.id,
+    id: request.id,
+    status: request.status,
+    sku: request.sku
+  }));
+  
+  res.json(updates);
+});
+
 //P0 ChangeRoom Feedback
 
 app.post("/api/feedback", (req, res) => {
