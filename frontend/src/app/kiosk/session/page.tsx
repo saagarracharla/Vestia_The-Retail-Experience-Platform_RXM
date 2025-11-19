@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import Modal from "@/components/Modal";
 import SessionTimer from "@/components/SessionTimer";
 import { generateSessionId } from "@/utils/sessionId";
@@ -12,6 +13,7 @@ type Item = {
   name: string;
   color: string;
   size: string;
+  imageUrl?: string;
 };
 
 type MockRecommendation = {
@@ -91,6 +93,7 @@ export default function SessionKioskPage() {
         name: foundItem.name,
         color: "Default",
         size: foundItem.size,
+        imageUrl: foundItem.imageUrl,
       };
       
       setItems(prev => [...prev, newItem]);
@@ -299,8 +302,20 @@ export default function SessionKioskPage() {
                 {mainItem && (
                   <div className="bg-[#FDF7EF] rounded-2xl p-8 border border-[#E5D5C8]">
                     <div className="flex gap-8">
-                      <div className="w-40 h-56 bg-[#E5D5C8] rounded-xl flex items-center justify-center">
-                        <span className="text-[#3B2A21] text-lg">Image</span>
+                      <div className="w-40 h-56 bg-[#E5D5C8] rounded-xl overflow-hidden">
+                        {mainItem.imageUrl ? (
+                          <Image
+                            src={mainItem.imageUrl}
+                            alt={mainItem.name}
+                            width={160}
+                            height={224}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <span className="text-[#3B2A21] text-lg">Image</span>
+                          </div>
+                        )}
                       </div>
                       <div className="flex-1">
                         <h3 className="text-3xl font-semibold text-[#3B2A21] mb-4">{mainItem.name}</h3>
@@ -366,8 +381,20 @@ export default function SessionKioskPage() {
                             style={{ minWidth: 'calc(50% - 8px)' }}
                           >
                             <div className="flex gap-3 h-full">
-                              <div className="w-20 h-24 bg-[#E5D5C8] rounded-lg flex items-center justify-center flex-shrink-0">
-                                <span className="text-[#3B2A21] text-sm">Img</span>
+                              <div className="w-20 h-24 bg-[#E5D5C8] rounded-lg overflow-hidden flex-shrink-0">
+                                {item.imageUrl ? (
+                                  <Image
+                                    src={item.imageUrl}
+                                    alt={item.name}
+                                    width={80}
+                                    height={96}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center">
+                                    <span className="text-[#3B2A21] text-sm">Img</span>
+                                  </div>
+                                )}
                               </div>
                               <div className="flex-1 min-w-0 flex flex-col justify-between">
                                 <div>

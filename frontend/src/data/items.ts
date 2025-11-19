@@ -16,7 +16,7 @@ const TSHIRT: Item = {
   sku: "111",
   name: "Oversized Cream T-Shirt",
   size: "M",
-  imageUrl: "/items/tshirt.png",
+  imageUrl: "/images/items/tshirt.png",
   price: "$39.99",
   description: "Relaxed fit cream T-shirt, defaulting to size M for this demo.",
   recommendedIds: ["SHORTS", "SNEAKERS", "JACKET"]
@@ -27,7 +27,7 @@ const SHORTS: Item = {
   sku: "222",
   name: "Black Tech Shorts",
   size: "M",
-  imageUrl: "/items/shorts.png",
+  imageUrl: "/images/items/shorts.png",
   price: "$49.99",
   description: "Lightweight tech shorts in size M for this demo.",
   recommendedIds: ["TSHIRT", "SNEAKERS", "JACKET"]
@@ -38,7 +38,7 @@ const SNEAKERS: Item = {
   sku: "333",
   name: "White Minimal Sneakers",
   size: "9",
-  imageUrl: "/items/sneakers.png",
+  imageUrl: "/images/items/sneakers.png",
   price: "$89.99",
   description: "Minimal white sneakers, shown in size 9.",
   recommendedIds: ["TSHIRT", "SHORTS", "JACKET"]
@@ -49,7 +49,7 @@ const JACKET: Item = {
   sku: "444",
   name: "Lightweight Denim Jacket",
   size: "M",
-  imageUrl: "/items/jacket.png",
+  imageUrl: "/images/items/jacket.png",
   price: "$79.99",
   description: "Light-wash denim jacket, defaulting to size M.",
   recommendedIds: ["TSHIRT", "SHORTS", "SNEAKERS"]
