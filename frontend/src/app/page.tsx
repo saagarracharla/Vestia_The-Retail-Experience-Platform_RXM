@@ -41,21 +41,9 @@ export default function KioskPage() {
   const [feedbackRating, setFeedbackRating] = useState("5");
   const [feedbackComment, setFeedbackComment] = useState("");
 
-  // Initialize or restore session
+  // Always show welcome screen on page load
   useEffect(() => {
-    const savedSessionId = localStorage.getItem("sessionId");
-    const savedStartTime = localStorage.getItem("sessionStartTime");
-
-    if (savedSessionId && savedStartTime) {
-      // Restore existing session - skip welcome screen
-      setSessionId(savedSessionId);
-      setSessionStartTime(new Date(savedStartTime));
-      setHasStartedSession(true);
-      loadSession(savedSessionId);
-    } else {
-      // No saved session - show welcome screen
-      setHasStartedSession(false);
-    }
+    setHasStartedSession(false);
   }, []);
 
   function initializeSession() {
@@ -243,7 +231,7 @@ export default function KioskPage() {
 
   // Show welcome screen if session hasn't started
   if (!hasStartedSession) {
-    return <WelcomeScreen onStart={handleStartSession} />;
+    return <WelcomeScreen />;
   }
 
   return (
