@@ -483,25 +483,38 @@ export default function SessionKioskPage() {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Requested Size
               </label>
-              <input
-                type="text"
+              <select
                 value={requestedSize}
                 onChange={(e) => setRequestedSize(e.target.value)}
-                placeholder="e.g. L"
-                className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-all"
-              />
+                className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-all"
+              >
+                <option value="">Select size</option>
+                <option value="XS">XS</option>
+                <option value="S">S</option>
+                <option value="M">M</option>
+                <option value="L">L</option>
+                <option value="XL">XL</option>
+                <option value="2XL">2XL</option>
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Requested Color
               </label>
-              <input
-                type="text"
+              <select
                 value={requestedColor}
                 onChange={(e) => setRequestedColor(e.target.value)}
-                placeholder="e.g. Red"
-                className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-all"
-              />
+                className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-all"
+              >
+                <option value="">Select color</option>
+                <option value="Black">Black</option>
+                <option value="White">White</option>
+                <option value="Red">Red</option>
+                <option value="Blue">Blue</option>
+                <option value="Green">Green</option>
+                <option value="Yellow">Yellow</option>
+                <option value="Purple">Purple</option>
+              </select>
             </div>
             <div className="flex gap-3 pt-2">
               <button
