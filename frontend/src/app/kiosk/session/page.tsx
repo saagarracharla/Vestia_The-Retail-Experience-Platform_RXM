@@ -2,13 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import ItemCard from "@/components/ItemCard";
 import Modal from "@/components/Modal";
 import SessionTimer from "@/components/SessionTimer";
-import {
-  RecommendedOutfitsPlaceholder,
-  MixAndMatchPlaceholder,
-} from "@/components/FutureFeaturesPlaceholder";
 import { generateSessionId } from "@/utils/sessionId";
 
 type Item = {
@@ -16,6 +11,15 @@ type Item = {
   name: string;
   color: string;
   size: string;
+};
+
+type MockRecommendation = {
+  id: string;
+  name: string;
+  color: string;
+  size: string;
+  price: string;
+  imageUrl?: string;
 };
 
 const BACKEND_URL = "http://localhost:4000";
@@ -29,6 +33,7 @@ export default function SessionKioskPage() {
   const [color, setColor] = useState("");
   const [size, setSize] = useState("");
   const [items, setItems] = useState<Item[]>([]);
+  const [selectedMainIndex, setSelectedMainIndex] = useState<number>(-1);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("success");
 
@@ -60,7 +65,9 @@ export default function SessionKioskPage() {
       const res = await fetch(`${BACKEND_URL}/api/session/${id}`);
       if (res.ok) {
         const data = await res.json();
-        setItems(data.items || []);
+        const loadedItems = data.items || [];
+        setItems(loadedItems);
+        setSelectedMainIndex(loadedItems.length > 0 ? loadedItems.length - 1 : -1);
       }
     } catch (err) {
       console.error("Failed to load session:", err);
@@ -99,8 +106,7 @@ export default function SessionKioskPage() {
 
       const data = await res.json();
       setItems(data.items || []);
-      setMessage("Item scanned successfully!");
-      setMessageType("success");
+      setSelectedMainIndex((data.items || []).length - 1); // Set newest item as main
       setSku("");
       setName("");
       setColor("");
@@ -199,162 +205,271 @@ export default function SessionKioskPage() {
     }
   }
 
+  // Generate mock recommendations based on the selected main item
+  function generateMockRecommendations(): MockRecommendation[] {
+    if (items.length === 0 || selectedMainIndex < 0) return [];
+    
+    const mainItem = items[selectedMainIndex];
+    return [
+      {
+        id: "rec-1",
+        name: `${mainItem.color} Blazer`,
+        color: mainItem.color,
+        size: mainItem.size,
+        price: "$89"
+      },
+      {
+        id: "rec-2", 
+        name: `Matching Trousers`,
+        color: mainItem.color,
+        size: mainItem.size,
+        price: "$65"
+      },
+      {
+        id: "rec-3",
+        name: `${mainItem.color} Accessories`,
+        color: mainItem.color,
+        size: "One Size",
+        price: "$25"
+      },
+      {
+        id: "rec-4",
+        name: `Alternative ${mainItem.name}`,
+        color: "Navy",
+        size: mainItem.size,
+        price: "$75"
+      }
+    ];
+  }
+
+  // Get items for display: selected item as main, others as smaller cards
+  const mainItem = items.length > 0 && selectedMainIndex >= 0 ? items[selectedMainIndex] : null;
+  const previousItems = items.length > 1 
+    ? items.filter((_, index) => index !== selectedMainIndex).reverse()
+    : [];
+  const recommendations = generateMockRecommendations();
+
   if (!sessionId) {
     return <div>Loading...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-[#F5F5F5]">
-      {/* Hero Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-6 py-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-4xl font-bold text-gray-900 mb-2">
-                Smart Fitting Room Experience
-              </h1>
-              <p className="text-gray-600 text-lg">
-                Scan items and get personalized recommendations
-              </p>
+    <div className="min-h-screen bg-[#F5E9DA]">
+      {/* Top Bar */}
+      <div className="bg-[#FDF7EF] border-b border-[#E5D5C8] px-8 py-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-[#3B2A21]">Vestia</h1>
+          <div className="flex items-center gap-6 text-[#3B2A21]">
+            <a href="/" className="font-medium hover:underline">Kiosk</a>
+            <a href="/admin" className="font-medium hover:underline">Requests</a>
+            <a href="/analytics" className="font-medium hover:underline">Analytics</a>
+            <span className="font-medium">Room 7</span>
+            {sessionStartTime && <SessionTimer startTime={sessionStartTime} />}
+            <button className="font-medium hover:underline">Log In</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Layout */}
+      <div className="flex gap-8 p-8 w-full max-w-none" style={{ height: "calc(100vh - 80px)" }}>
+        {/* Left Column - 55% */}
+        <div className="flex flex-col space-y-4 overflow-hidden" style={{ flexBasis: "55%", width: "55%", maxWidth: "55%" }}>
+          {/* Scan Item Banner - Compact */}
+          <div className="bg-[#FDF7EF] rounded-xl p-4 border border-[#E5D5C8]">
+            <h2 className="text-lg font-semibold text-[#3B2A21] mb-3">Scan item</h2>
+            <div className="grid grid-cols-4 gap-3 mb-3">
+              <input
+                type="text"
+                value={sku}
+                onChange={(e) => setSku(e.target.value)}
+                placeholder="SKU *"
+                className="bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm"
+              />
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Name"
+                className="bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm"
+              />
+              <input
+                type="text"
+                value={color}
+                onChange={(e) => setColor(e.target.value)}
+                placeholder="Color"
+                className="bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm"
+              />
+              <input
+                type="text"
+                value={size}
+                onChange={(e) => setSize(e.target.value)}
+                placeholder="Size"
+                className="bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm"
+              />
             </div>
-            {sessionStartTime && (
-              <div className="flex items-center">
-                <SessionTimer startTime={sessionStartTime} />
+            <button
+              onClick={handleScan}
+              className="px-6 py-2 bg-[#4A3A2E] hover:bg-[#3B2A21] text-[#FDF7EF] font-medium rounded-md transition-all text-sm"
+            >
+              Scan Item
+            </button>
+          </div>
+
+          {/* Your Items Section - Maximized */}
+          <div className="flex-1">
+            <h2 className="text-3xl font-semibold text-[#3B2A21] mb-6">Your Items ({items.length})</h2>
+            
+            {items.length === 0 ? (
+              <div className="bg-[#FDF7EF] rounded-2xl p-12 border border-[#E5D5C8] text-center">
+                <div className="w-20 h-20 bg-[#E5D5C8] rounded-full mx-auto mb-4 flex items-center justify-center">
+                  <svg className="w-10 h-10 text-[#3B2A21]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                </div>
+                <p className="text-[#3B2A21] font-medium">No items scanned yet. Scan an item to get started.</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Main Item Card - Larger */}
+                {mainItem && (
+                  <div className="bg-[#FDF7EF] rounded-2xl p-8 border border-[#E5D5C8]">
+                    <div className="flex gap-8">
+                      <div className="w-40 h-56 bg-[#E5D5C8] rounded-xl flex items-center justify-center">
+                        <span className="text-[#3B2A21] text-lg">Image</span>
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-3xl font-semibold text-[#3B2A21] mb-4">{mainItem.name}</h3>
+                        <div className="flex gap-3 mb-6">
+                          <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">{mainItem.color}</span>
+                          <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">Size {mainItem.size}</span>
+                          <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">$75</span>
+                        </div>
+                        <div className="flex flex-col gap-3">
+                          <button
+                            onClick={() => handleRequestSize(mainItem)}
+                            className="px-6 py-4 bg-[#4A3A2E] text-[#FDF7EF] rounded-xl font-medium hover:bg-[#3B2A21] transition-all text-left"
+                          >
+                            <div className="text-base font-semibold">Request different size/colour for this item</div>
+                            <div className="text-sm opacity-90">Associate will bring your requested size to Room 7.</div>
+                          </button>
+                          <button
+                            onClick={() => handleLeaveFeedback(mainItem)}
+                            className="px-6 py-4 border border-[#4A3A2E] text-[#4A3A2E] rounded-xl font-medium hover:bg-[#4A3A2E] hover:text-[#FDF7EF] transition-all text-left"
+                          >
+                            <div className="text-base font-semibold">☆ Save / Share + Add Notes</div>
+                            <div className="text-sm opacity-90">Your notes help us personalize your experience.</div>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Previous Items - Scrollable Carousel with Arrows */}
+                {previousItems.length > 0 && (
+                  <div className="relative h-32 w-full max-w-full overflow-hidden">
+                    <div 
+                      className="flex gap-4 overflow-x-auto scrollbar-hide drag-scroll h-full snap-x snap-mandatory"
+                      style={{ scrollBehavior: 'smooth' }}
+                      onMouseDown={(e) => {
+                        const container = e.currentTarget;
+                        const startX = e.pageX - container.offsetLeft;
+                        const scrollLeft = container.scrollLeft;
+                        
+                        const handleMouseMove = (e: MouseEvent) => {
+                          const x = e.pageX - container.offsetLeft;
+                          const walk = (x - startX) * 2;
+                          container.scrollLeft = scrollLeft - walk;
+                        };
+                        
+                        const handleMouseUp = () => {
+                          document.removeEventListener('mousemove', handleMouseMove);
+                          document.removeEventListener('mouseup', handleMouseUp);
+                        };
+                        
+                        document.addEventListener('mousemove', handleMouseMove);
+                        document.addEventListener('mouseup', handleMouseUp);
+                      }}
+                    >
+                      {previousItems.map((item, index) => {
+                        const originalIndex = items.findIndex(i => i === item);
+                        return (
+                          <div 
+                            key={`${item.sku}-${index}`} 
+                            onClick={() => setSelectedMainIndex(originalIndex)}
+                            className="bg-[#FDF7EF] rounded-xl p-4 border border-[#E5D5C8] cursor-pointer hover:bg-[#F5E9DA] transition-all flex-shrink-0 clickable snap-start"
+                            style={{ minWidth: 'calc(50% - 8px)' }}
+                          >
+                            <div className="flex gap-3 h-full">
+                              <div className="w-20 h-24 bg-[#E5D5C8] rounded-lg flex items-center justify-center flex-shrink-0">
+                                <span className="text-[#3B2A21] text-sm">Img</span>
+                              </div>
+                              <div className="flex-1 min-w-0 flex flex-col justify-between">
+                                <div>
+                                  <h4 className="font-semibold text-[#3B2A21] text-base mb-2 truncate">{item.name}</h4>
+                                  <p className="text-[#3B2A21] text-sm mb-2">SKU: {item.sku}</p>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">{item.color}</span>
+                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">Size {item.size}</span>
+                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">$75</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
-      </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        {message && (
-          <div
-            className={`mb-6 p-4 rounded-xl border ${
-              messageType === "success"
-                ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                : "bg-red-50 border-red-200 text-red-700"
-            }`}
-          >
-            {message}
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main Content - Left Column */}
-          <div className="lg:col-span-2 space-y-8">
-            {/* Scan Item Section */}
-            <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
-              <h2 className="text-2xl font-semibold text-gray-900 mb-4">
-                Scan Item
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    SKU *
-                  </label>
-                  <input
-                    type="text"
-                    value={sku}
-                    onChange={(e) => setSku(e.target.value)}
-                    placeholder="e.g. SKU123"
-                    className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-all"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Name
-                  </label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Blue Slim-Fit Shirt"
-                    className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-all"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Color
-                  </label>
-                  <input
-                    type="text"
-                    value={color}
-                    onChange={(e) => setColor(e.target.value)}
-                    placeholder="e.g. Blue"
-                    className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-all"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Size
-                  </label>
-                  <input
-                    type="text"
-                    value={size}
-                    onChange={(e) => setSize(e.target.value)}
-                    placeholder="e.g. M"
-                    className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-all"
-                  />
-                </div>
+        {/* Right Column - 45% */}
+        <div className="relative h-full overflow-hidden" style={{ flexBasis: "45%", width: "45%", maxWidth: "45%" }}>
+          <div className="absolute inset-0 flex flex-col bg-[#FDF7EF] rounded-2xl border border-[#E5D5C8] p-6">
+            <h2 className="text-3xl font-semibold text-[#3B2A21] mb-6 flex-shrink-0">Recommended for this item</h2>
+            
+            {recommendations.length === 0 ? (
+              <div className="flex-1 flex items-center justify-center">
+                <p className="text-[#3B2A21]">Scan an item to see outfit recommendations</p>
               </div>
-              <button
-                onClick={handleScan}
-                className="mt-4 w-full md:w-auto px-8 py-3 bg-[#0066CC] hover:bg-[#0052A3] text-white font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
-              >
-                Scan Item
-              </button>
-            </div>
-
-            {/* Scanned Items */}
-            <div>
-              <h2 className="text-2xl font-semibold text-gray-900 mb-4">
-                Your Items ({items.length})
-              </h2>
-              {items.length === 0 ? (
-                <div className="bg-white rounded-2xl p-12 border border-gray-200 text-center shadow-sm">
-                  <div className="inline-flex items-center justify-center w-20 h-20 bg-gray-100 rounded-full mb-4">
-                    <svg
-                      className="w-10 h-10 text-gray-400"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 4v16m8-8H4"
-                      />
-                    </svg>
+            ) : (
+              <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-4">
+                {recommendations.map((rec) => (
+                <div key={rec.id} className="bg-white rounded-xl p-4 border border-[#E5D5C8] flex flex-col">
+                    <div className="flex gap-3 flex-1">
+                      <div className="w-20 flex-1 bg-[#E5D5C8] rounded-lg flex items-center justify-center flex-shrink-0">
+                        <span className="text-[#3B2A21] text-xs">Image</span>
+                      </div>
+                      <div className="flex-1 min-w-0 flex flex-col">
+                        <h4 className="font-medium text-[#3B2A21] text-sm mb-3 truncate">{rec.name}</h4>
+                        <div className="flex flex-col gap-2 flex-1">
+                          <span className="px-2 py-1 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full w-fit">{rec.color}</span>
+                          <span className="px-2 py-1 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full w-fit">{rec.size}</span>
+                          <span className="px-2 py-1 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full w-fit">{rec.price}</span>
+                        </div>
+                        <div className="flex flex-col gap-2 mt-auto">
+                          <button className="text-xs bg-[#4A3A2E] text-[#FDF7EF] rounded-md py-1 hover:bg-[#3B2A21] transition-all">
+                            ☆ Save
+                          </button>
+                          <button className="text-xs border border-[#4A3A2E] text-[#4A3A2E] rounded-md py-1 hover:bg-[#4A3A2E] hover:text-[#FDF7EF] transition-all">
+                            Request
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <p className="text-gray-500 font-medium">
-                    No items scanned yet. Scan an item to get started.
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {items.map((item, index) => (
-                    <ItemCard
-                      key={`${item.sku}-${index}`}
-                      item={item}
-                      onRequestSize={handleRequestSize}
-                      onLeaveFeedback={handleLeaveFeedback}
-                    />
-                  ))}
-                </div>
-              )}
+                ))}
             </div>
-          </div>
-
-          {/* Right Sidebar - Future Features */}
-          <div className="space-y-6">
-            <RecommendedOutfitsPlaceholder />
-            <MixAndMatchPlaceholder />
+          )}
           </div>
         </div>
       </div>
 
-      {/* Request Size Modal */}
+      {/* Existing Modals - Keep as-is */}
       <Modal
         isOpen={isRequestModalOpen}
         onClose={() => {
@@ -417,7 +532,6 @@ export default function SessionKioskPage() {
         )}
       </Modal>
 
-      {/* Feedback Modal */}
       <Modal
         isOpen={isFeedbackModalOpen}
         onClose={() => {

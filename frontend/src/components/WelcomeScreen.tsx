@@ -1,11 +1,17 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import Image from "next/image";
 import { generateSessionId } from "@/utils/sessionId";
 
 export default function WelcomeScreen() {
   const router = useRouter();
+
+  // Clear all localStorage on component mount (dev restart)
+  useEffect(() => {
+    localStorage.clear();
+  }, []);
 
   function handleStart() {
     const sessionId = generateSessionId();
