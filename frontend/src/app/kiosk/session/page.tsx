@@ -91,7 +91,7 @@ export default function SessionKioskPage() {
             if (pendingRequest) {
               if (update.status === "PickedUp" || update.status === "picked_up") {
                 setNotification({
-                  message: `${pendingRequest.itemName} (${pendingRequest.color}, Size ${pendingRequest.size}) - Store associate picked it up and is on the way`,
+                  message: `${pendingRequest.itemName} (${pendingRequest.color}, Size ${pendingRequest.size}) - An store associate picked it up and is on the way`,
                   type: "success"
                 });
               } else if (update.status === "Cancelled" || update.status === "cancelled") {
