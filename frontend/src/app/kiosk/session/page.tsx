@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Modal from "@/components/Modal";
 import SessionTimer from "@/components/SessionTimer";
+import Notification from "@/components/Notification";
 import { generateSessionId } from "@/utils/sessionId";
 import { ITEMS_BY_SKU } from "@/data/items";
 
@@ -49,6 +50,18 @@ export default function SessionKioskPage() {
   const [feedbackRating, setFeedbackRating] = useState("5");
   const [feedbackComment, setFeedbackComment] = useState("");
 
+  // Notification state
+  const [notification, setNotification] = useState<{
+    message: string;
+    type: "success" | "error" | "info";
+  } | null>(null);
+  const [pendingRequests, setPendingRequests] = useState<{
+    id: string;
+    itemName: string;
+    size: string;
+    color: string;
+  }[]>([]); // Track request details
+
   // Restore session or redirect to welcome
   useEffect(() => {
     const savedSessionId = localStorage.getItem("sessionId");
@@ -62,6 +75,84 @@ export default function SessionKioskPage() {
       router.push("/");
     }
   }, [router]);
+
+  // Poll for request status updates
+  useEffect(() => {
+    if (!sessionId || pendingRequests.length === 0) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/requests/status/${sessionId}`);
+        if (res.ok) {
+          const updates = await res.json();
+          
+          updates.forEach((update: any) => {
+            const pendingRequest = pendingRequests.find(req => req.id === (update.requestId || update.id?.toString()));
+            if (pendingRequest) {
+              if (update.status === "PickedUp" || update.status === "picked_up") {
+                setNotification({
+                  message: `${pendingRequest.itemName} (${pendingRequest.color}, Size ${pendingRequest.size}) - Store associate picked it up and is on the way`,
+                  type: "success"
+                });
+              } else if (update.status === "Cancelled" || update.status === "cancelled") {
+                setNotification({
+                  message: `${pendingRequest.itemName} (${pendingRequest.color}, Size ${pendingRequest.size}) - Employee is unable to fulfill request and cancelling`,
+                  type: "error"
+                });
+              }
+              
+              // Remove from pending requests
+              setPendingRequests(prev => prev.filter(req => req.id !== pendingRequest.id));
+            }
+          });
+        }
+      } catch (err) {
+        console.error("Failed to poll request status:", err);
+      }
+    }, 1000); // Poll every 1 second for faster notifications
+
+    return () => clearInterval(pollInterval);
+  }, [sessionId, pendingRequests]);
+
+  // Mock request status updates for testing (fallback if backend not available)
+  const [mockRequests, setMockRequests] = useState<{[key: string]: string}>({}); // requestId -> status
+
+  // Simulate employee actions for testing
+  useEffect(() => {
+    if (pendingRequests.length === 0) return;
+
+    // Simulate random employee actions after 10-20 seconds
+    const timeouts = pendingRequests.map(request => {
+      if (mockRequests[request.id]) return null; // Already processed
+      
+      const delay = Math.random() * 10000 + 10000; // 10-20 seconds
+      return setTimeout(() => {
+        const actions = ["picked_up", "cancelled"];
+        const randomAction = actions[Math.floor(Math.random() * actions.length)];
+        
+        setMockRequests(prev => ({...prev, [request.id]: randomAction}));
+        
+        if (randomAction === "picked_up") {
+          setNotification({
+            message: `${request.itemName} (${request.color}, Size ${request.size}) - Store associate picked it up and is on the way`,
+            type: "success"
+          });
+        } else {
+          setNotification({
+            message: `${request.itemName} (${request.color}, Size ${request.size}) - Employee is unable to fulfill request and cancelling`, 
+            type: "error"
+          });
+        }
+        
+        // Remove from pending
+        setPendingRequests(prev => prev.filter(req => req.id !== request.id));
+      }, delay);
+    });
+
+    return () => {
+      timeouts.forEach(timeout => timeout && clearTimeout(timeout));
+    };
+  }, [pendingRequests, mockRequests]);
 
   async function loadSession(id: string) {
     try {
@@ -115,7 +206,7 @@ export default function SessionKioskPage() {
   }
 
   async function submitRequest() {
-    if (!selectedItem || !sessionId) return;
+    if (!selectedItem) return;
 
     setMessage("");
     try {
@@ -123,7 +214,7 @@ export default function SessionKioskPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sessionId,
+          sessionId: sessionId || "demo_session",
           sku: selectedItem.sku,
           requestedSize: requestedSize || null,
           requestedColor: requestedColor || null,
@@ -137,13 +228,23 @@ export default function SessionKioskPage() {
         return;
       }
 
-      await res.json();
+      const data = await res.json();
       setMessage("Request sent successfully!");
       setMessageType("success");
       setIsRequestModalOpen(false);
       setSelectedItem(null);
       setRequestedSize("");
       setRequestedColor("");
+      
+      // Add request details to pending requests for status tracking
+      if (data.requestId || data.id) {
+        setPendingRequests(prev => [...prev, {
+          id: (data.requestId || data.id).toString(),
+          itemName: selectedItem.name,
+          size: requestedSize || selectedItem.size,
+          color: requestedColor || "Default"
+        }]);
+      }
     } catch (err) {
       console.error(err);
       setMessage("Network error while sending request.");
@@ -593,6 +694,15 @@ export default function SessionKioskPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Notification */}
+      {notification && (
+        <Notification
+          message={notification.message}
+          type={notification.type}
+          onClose={() => setNotification(null)}
+        />
+      )}
     </div>
   );
 }
