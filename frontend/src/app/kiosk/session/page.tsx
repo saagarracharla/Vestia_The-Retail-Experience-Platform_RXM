@@ -2,15 +2,19 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import Modal from "@/components/Modal";
 import SessionTimer from "@/components/SessionTimer";
+import Notification from "@/components/Notification";
 import { generateSessionId } from "@/utils/sessionId";
+import { ITEMS_BY_SKU } from "@/data/items";
 
 type Item = {
   sku: string;
   name: string;
   color: string;
   size: string;
+  imageUrl?: string;
 };
 
 type MockRecommendation = {
@@ -46,6 +50,18 @@ export default function SessionKioskPage() {
   const [feedbackRating, setFeedbackRating] = useState("5");
   const [feedbackComment, setFeedbackComment] = useState("");
 
+  // Notification state
+  const [notification, setNotification] = useState<{
+    message: string;
+    type: "success" | "error" | "info";
+  } | null>(null);
+  const [pendingRequests, setPendingRequests] = useState<{
+    id: string;
+    itemName: string;
+    size: string;
+    color: string;
+  }[]>([]); // Track request details
+
   // Restore session or redirect to welcome
   useEffect(() => {
     const savedSessionId = localStorage.getItem("sessionId");
@@ -59,6 +75,52 @@ export default function SessionKioskPage() {
       router.push("/");
     }
   }, [router]);
+
+  // Listen for notifications from admin panel via localStorage
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'kioskNotification' && e.newValue) {
+        try {
+          const notificationData = JSON.parse(e.newValue);
+          console.log("Received notification from admin:", notificationData);
+          
+          // Find the pending request
+          const pendingRequest = pendingRequests.find(req => req.id === notificationData.requestId.toString());
+          
+          if (pendingRequest) {
+            console.log("Found matching pending request:", pendingRequest);
+            
+            if (notificationData.status === "PickedUp") {
+              console.log("Showing SUCCESS notification for pickup");
+              setNotification({
+                message: `${pendingRequest.itemName} (${pendingRequest.color}, Size ${pendingRequest.size}) - Store associate picked it up and is on the way`,
+                type: "success"
+              });
+            } else if (notificationData.status === "Cancelled") {
+              console.log("Showing ERROR notification for cancellation");
+              setNotification({
+                message: `${pendingRequest.itemName} (${pendingRequest.color}, Size ${pendingRequest.size}) - Employee is unable to fulfill request and cancelling`,
+                type: "error"
+              });
+            }
+            
+            // Remove from pending requests
+            setPendingRequests(prev => prev.filter(req => req.id !== pendingRequest.id));
+            
+            // Clear the notification from localStorage
+            localStorage.removeItem('kioskNotification');
+          }
+        } catch (err) {
+          console.error("Error processing notification:", err);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [pendingRequests]);
+
+  // Mock system removed - notifications will work when backend implements /api/requests/status endpoint
 
   async function loadSession(id: string) {
     try {
@@ -82,38 +144,24 @@ export default function SessionKioskPage() {
       return;
     }
 
-    if (!sessionId) return;
-
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/session/scan`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          sku,
-          name,
-          color,
-          size,
-        }),
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json();
-        setMessage(errorData.error || "Failed to scan item.");
-        setMessageType("error");
-        return;
-      }
-
-      const data = await res.json();
-      setItems(data.items || []);
-      setSelectedMainIndex((data.items || []).length - 1); // Set newest item as main
+    // Look up item in hardcoded data
+    const foundItem = ITEMS_BY_SKU[sku];
+    if (foundItem) {
+      const newItem: Item = {
+        sku: foundItem.sku,
+        name: foundItem.name,
+        color: "Default",
+        size: foundItem.size,
+        imageUrl: foundItem.imageUrl,
+      };
+      
+      setItems(prev => [...prev, newItem]);
+      setSelectedMainIndex(items.length); // Select the newly added item
+      setMessage(`Scanned: ${foundItem.name}`);
+      setMessageType("success");
       setSku("");
-      setName("");
-      setColor("");
-      setSize("");
-    } catch (err) {
-      console.error(err);
-      setMessage("Network error while scanning item.");
+    } else {
+      setMessage(`SKU "${sku}" not found. Try: 111, 222, 333, or 444`);
       setMessageType("error");
     }
   }
@@ -126,7 +174,7 @@ export default function SessionKioskPage() {
   }
 
   async function submitRequest() {
-    if (!selectedItem || !sessionId) return;
+    if (!selectedItem) return;
 
     setMessage("");
     try {
@@ -134,7 +182,7 @@ export default function SessionKioskPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sessionId,
+          sessionId: sessionId || "demo_session",
           sku: selectedItem.sku,
           requestedSize: requestedSize || null,
           requestedColor: requestedColor || null,
@@ -148,13 +196,23 @@ export default function SessionKioskPage() {
         return;
       }
 
-      await res.json();
+      const data = await res.json();
       setMessage("Request sent successfully!");
       setMessageType("success");
       setIsRequestModalOpen(false);
       setSelectedItem(null);
       setRequestedSize("");
       setRequestedColor("");
+      
+      // Add request details to pending requests for status tracking
+      if (data.requestId || data.id) {
+        setPendingRequests(prev => [...prev, {
+          id: (data.requestId || data.id).toString(),
+          itemName: selectedItem.name,
+          size: requestedSize || selectedItem.size,
+          color: requestedColor || "Default"
+        }]);
+      }
     } catch (err) {
       console.error(err);
       setMessage("Network error while sending request.");
@@ -276,43 +334,22 @@ export default function SessionKioskPage() {
         <div className="flex flex-col space-y-4 overflow-hidden" style={{ flexBasis: "55%", width: "55%", maxWidth: "55%" }}>
           {/* Scan Item Banner - Compact */}
           <div className="bg-[#FDF7EF] rounded-xl p-4 border border-[#E5D5C8]">
-            <h2 className="text-lg font-semibold text-[#3B2A21] mb-3">Scan item</h2>
-            <div className="grid grid-cols-4 gap-3 mb-3">
+            <h2 className="text-lg font-semibold text-[#3B2A21] mb-3">Enter SKU</h2>
+            <div className="flex gap-3 mb-3">
               <input
                 type="text"
                 value={sku}
                 onChange={(e) => setSku(e.target.value)}
-                placeholder="SKU *"
-                className="bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm"
+                placeholder="Enter SKU (111, 222, 333, or 444)"
+                className="flex-1 bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm"
               />
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Name"
-                className="bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm"
-              />
-              <input
-                type="text"
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
-                placeholder="Color"
-                className="bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm"
-              />
-              <input
-                type="text"
-                value={size}
-                onChange={(e) => setSize(e.target.value)}
-                placeholder="Size"
-                className="bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm"
-              />
+              <button
+                onClick={handleScan}
+                className="px-6 py-2 bg-[#4A3A2E] hover:bg-[#3B2A21] text-[#FDF7EF] font-medium rounded-md transition-all text-sm"
+              >
+                Scan Item
+              </button>
             </div>
-            <button
-              onClick={handleScan}
-              className="px-6 py-2 bg-[#4A3A2E] hover:bg-[#3B2A21] text-[#FDF7EF] font-medium rounded-md transition-all text-sm"
-            >
-              Scan Item
-            </button>
           </div>
 
           {/* Your Items Section - Maximized */}
@@ -334,8 +371,20 @@ export default function SessionKioskPage() {
                 {mainItem && (
                   <div className="bg-[#FDF7EF] rounded-2xl p-8 border border-[#E5D5C8]">
                     <div className="flex gap-8">
-                      <div className="w-40 h-56 bg-[#E5D5C8] rounded-xl flex items-center justify-center">
-                        <span className="text-[#3B2A21] text-lg">Image</span>
+                      <div className="w-40 h-56 bg-[#E5D5C8] rounded-xl overflow-hidden">
+                        {mainItem.imageUrl ? (
+                          <Image
+                            src={mainItem.imageUrl}
+                            alt={mainItem.name}
+                            width={160}
+                            height={224}
+                            className="w-full h-full object-contain"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <span className="text-[#3B2A21] text-lg">Image</span>
+                          </div>
+                        )}
                       </div>
                       <div className="flex-1">
                         <h3 className="text-3xl font-semibold text-[#3B2A21] mb-4">{mainItem.name}</h3>
@@ -401,8 +450,20 @@ export default function SessionKioskPage() {
                             style={{ minWidth: 'calc(50% - 8px)' }}
                           >
                             <div className="flex gap-3 h-full">
-                              <div className="w-20 h-24 bg-[#E5D5C8] rounded-lg flex items-center justify-center flex-shrink-0">
-                                <span className="text-[#3B2A21] text-sm">Img</span>
+                              <div className="w-20 h-24 bg-[#E5D5C8] rounded-lg overflow-hidden flex-shrink-0">
+                                {item.imageUrl ? (
+                                  <Image
+                                    src={item.imageUrl}
+                                    alt={item.name}
+                                    width={80}
+                                    height={96}
+                                    className="w-full h-full object-contain"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center">
+                                    <span className="text-[#3B2A21] text-sm">Img</span>
+                                  </div>
+                                )}
                               </div>
                               <div className="flex-1 min-w-0 flex flex-col justify-between">
                                 <div>
@@ -491,25 +552,38 @@ export default function SessionKioskPage() {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Requested Size
               </label>
-              <input
-                type="text"
+              <select
                 value={requestedSize}
                 onChange={(e) => setRequestedSize(e.target.value)}
-                placeholder="e.g. L"
-                className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-all"
-              />
+                className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-all"
+              >
+                <option value="">Select size</option>
+                <option value="XS">XS</option>
+                <option value="S">S</option>
+                <option value="M">M</option>
+                <option value="L">L</option>
+                <option value="XL">XL</option>
+                <option value="2XL">2XL</option>
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Requested Color
               </label>
-              <input
-                type="text"
+              <select
                 value={requestedColor}
                 onChange={(e) => setRequestedColor(e.target.value)}
-                placeholder="e.g. Red"
-                className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-all"
-              />
+                className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-all"
+              >
+                <option value="">Select color</option>
+                <option value="Black">Black</option>
+                <option value="White">White</option>
+                <option value="Red">Red</option>
+                <option value="Blue">Blue</option>
+                <option value="Green">Green</option>
+                <option value="Yellow">Yellow</option>
+                <option value="Purple">Purple</option>
+              </select>
             </div>
             <div className="flex gap-3 pt-2">
               <button
@@ -588,6 +662,15 @@ export default function SessionKioskPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Notification */}
+      {notification && (
+        <Notification
+          message={notification.message}
+          type={notification.type}
+          onClose={() => setNotification(null)}
+        />
+      )}
     </div>
   );
 }

@@ -53,9 +53,18 @@ export default function AdminPage() {
         return;
       }
 
-      await res.json();
+      const updatedRequest = await res.json();
       setMessage(`Request ${id} marked as ${status}.`);
       setMessageType("success");
+      
+      // Trigger kiosk notification by broadcasting to localStorage
+      const notificationData = {
+        requestId: id,
+        status: status,
+        timestamp: Date.now()
+      };
+      localStorage.setItem('kioskNotification', JSON.stringify(notificationData));
+      
       await loadRequests();
     } catch (err) {
       console.error(err);
@@ -200,7 +209,7 @@ export default function AdminPage() {
                       </td>
                       <td className="px-8 py-5">
                         <div className="flex gap-2 items-center flex-nowrap">
-                          {r.status !== "Delivered" && (
+                          {r.status !== "Delivered" && r.status !== "Cancelled" && (
                             <button
                               onClick={() => updateRequestStatus(r.id, "Delivered")}
                               className="px-4 py-2 rounded-full text-sm font-semibold bg-[#C7A070] text-[#3F250F] hover:bg-[#B88D57] transition whitespace-nowrap"
