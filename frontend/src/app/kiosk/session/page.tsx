@@ -15,6 +15,7 @@ type Item = {
   color: string;
   size: string;
   imageUrl?: string;
+  delivered?: boolean;
 };
 
 type MockRecommendation = {
@@ -122,6 +123,52 @@ export default function SessionKioskPage() {
 
   // Mock system removed - notifications will work when backend implements /api/requests/status endpoint
 
+  // Poll for delivered items and add them to the kiosk
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const pollDelivered = setInterval(async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/session/${sessionId}/delivered`);
+        if (res.ok) {
+          const data = await res.json();
+          const deliveredItems = data.items || [];
+          
+          // Add delivered items to the kiosk if not already present
+          deliveredItems.forEach((deliveredItem: any) => {
+            const alreadyExists = items.some(item => 
+              item.sku === deliveredItem.sku && item.delivered
+            );
+            
+            if (!alreadyExists) {
+              // Look up full item data from our hardcoded items
+              const fullItemData = ITEMS_BY_SKU[deliveredItem.sku];
+              
+              const newItem: Item = {
+                sku: deliveredItem.sku,
+                name: fullItemData?.name || deliveredItem.name,
+                color: deliveredItem.color,
+                size: deliveredItem.size,
+                imageUrl: fullItemData?.imageUrl,
+                delivered: true
+              };
+              
+              setItems(prev => [...prev, newItem]);
+              setNotification({
+                message: `${newItem.name} has been delivered to your fitting room!`,
+                type: "success"
+              });
+            }
+          });
+        }
+      } catch (err) {
+        console.warn("Failed to check for delivered items:", err);
+      }
+    }, 3000); // Check every 3 seconds
+
+    return () => clearInterval(pollDelivered);
+  }, [sessionId, items]);
+
   async function loadSession(id: string) {
     try {
       const res = await fetch(`${BACKEND_URL}/api/session/${id}`);
@@ -150,16 +197,37 @@ export default function SessionKioskPage() {
       const newItem: Item = {
         sku: foundItem.sku,
         name: foundItem.name,
-        color: "Default",
+        color: foundItem.color,
         size: foundItem.size,
         imageUrl: foundItem.imageUrl,
       };
       
+      // Update local state
       setItems(prev => [...prev, newItem]);
       setSelectedMainIndex(items.length); // Select the newly added item
       setMessage(`Scanned: ${foundItem.name}`);
       setMessageType("success");
       setSku("");
+
+      // Also send to backend for analytics
+      try {
+        await fetch(`${BACKEND_URL}/api/session/scan`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: sessionId || "demo_session",
+            sku: foundItem.sku,
+            name: foundItem.name,
+            color: foundItem.color,
+            size: foundItem.size,
+            category: foundItem.category,
+            material: foundItem.material,
+            price: foundItem.price,
+          }),
+        });
+      } catch (err) {
+        console.warn("Failed to sync with backend:", err);
+      }
     } else {
       setMessage(`SKU "${sku}" not found. Try: 111, 222, 333, or 444`);
       setMessageType("error");
@@ -369,7 +437,13 @@ export default function SessionKioskPage() {
               <div className="space-y-6">
                 {/* Main Item Card - Larger */}
                 {mainItem && (
-                  <div className="bg-[#FDF7EF] rounded-2xl p-8 border border-[#E5D5C8]">
+                  <div className={`bg-[#FDF7EF] rounded-2xl p-8 border border-[#E5D5C8] ${mainItem.delivered ? 'ring-2 ring-green-400' : ''}`}>
+                    {mainItem.delivered && (
+                      <div className="mb-4 flex items-center gap-2 text-green-600">
+                        <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                        <span className="text-sm font-medium">Delivered to your fitting room</span>
+                      </div>
+                    )}
                     <div className="flex gap-8">
                       <div className="w-40 h-56 bg-[#E5D5C8] rounded-xl overflow-hidden">
                         {mainItem.imageUrl ? (
@@ -391,7 +465,7 @@ export default function SessionKioskPage() {
                         <div className="flex gap-3 mb-6">
                           <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">{mainItem.color}</span>
                           <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">Size {mainItem.size}</span>
-                          <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">$75</span>
+                          <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">{ITEMS_BY_SKU[mainItem.sku]?.price || "$75"}</span>
                         </div>
                         <div className="flex flex-col gap-3">
                           <button
@@ -473,7 +547,7 @@ export default function SessionKioskPage() {
                                 <div className="flex flex-wrap gap-2">
                                   <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">{item.color}</span>
                                   <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">Size {item.size}</span>
-                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">$75</span>
+                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">{ITEMS_BY_SKU[item.sku]?.price || "$75"}</span>
                                 </div>
                               </div>
                             </div>

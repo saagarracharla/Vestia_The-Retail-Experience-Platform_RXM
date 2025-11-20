@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Navbar from "@/components/Navbar";
 import ColourDot from "@/components/ColourDot";
 import DonutChart from "@/components/DonutChart";
+import { ITEMS_BY_SKU } from "@/data/items";
 
 type Analytics = {
   totalSessions?: number;
@@ -39,6 +40,20 @@ export default function AnalyticsPage() {
       if (!res.ok) throw new Error("Failed to load analytics");
       const data = await res.json();
       setAnalytics(data);
+      
+      // Also get session items for images if we have a sessionId
+      const sid = typeof window !== "undefined" ? localStorage.getItem("sessionId") : null;
+      if (sid) {
+        try {
+          const sessionRes = await fetch(`${BACKEND_URL}/api/session/${sid}`);
+          if (sessionRes.ok) {
+            const sessionData = await sessionRes.json();
+            setSessionItems(sessionData.items || []);
+          }
+        } catch (err) {
+          console.warn("Could not fetch session items for images:", err);
+        }
+      }
     } catch (err) {
       console.warn("Analytics backend missing or failed — using placeholders.", err);
       setAnalytics((prev) =>
@@ -139,24 +154,15 @@ export default function AnalyticsPage() {
   }
 
   useEffect(() => {
-    const sid = typeof window !== "undefined" ? localStorage.getItem("sessionId") : null;
-    setSessionId(sid);
+    // Force use of backend analytics instead of session-based
+    setSessionId(null);
 
     let interval: any = null;
 
     async function boot() {
       setLoading(true);
-      if (sid) {
-        await fetchSession(sid);
-        await fetchRequestsForSession(sid);
-        interval = setInterval(async () => {
-          await fetchSession(sid);
-          await fetchRequestsForSession(sid);
-        }, 3000);
-      } else {
-        await fetchGenericAnalytics();
-        interval = setInterval(fetchGenericAnalytics, 5000);
-      }
+      await fetchGenericAnalytics();
+      interval = setInterval(fetchGenericAnalytics, 5000);
       setLoading(false);
     }
 
@@ -205,8 +211,27 @@ export default function AnalyticsPage() {
               <div className="text-[#4F2F14] font-semibold">{analytics?.requestsMade ?? 0} requests made</div>
             </div>
             <div className="flex gap-4">
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="w-20 h-20 bg-[#F7E8DA] rounded-md" />
+              {sessionItems.slice(0, 5).map((item, i) => {
+                const itemData = ITEMS_BY_SKU[item.sku];
+                return (
+                  <div key={i} className="w-20 h-20 bg-[#F7E8DA] rounded-md overflow-hidden">
+                    {itemData?.imageUrl ? (
+                      <img 
+                        src={itemData.imageUrl} 
+                        alt={itemData.name || item.sku}
+                        className="w-full h-full object-contain"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-xs text-[#8C6A4B]">
+                        {item.sku}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {/* Fill remaining slots with placeholders if needed */}
+              {Array.from({ length: Math.max(0, 5 - sessionItems.length) }).map((_, i) => (
+                <div key={`placeholder-${i}`} className="w-20 h-20 bg-[#F7E8DA] rounded-md" />
               ))}
             </div>
           </div>

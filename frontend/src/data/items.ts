@@ -9,6 +9,9 @@ interface Item {
   price: string;
   description: string;
   recommendedIds: ItemId[];
+  category: string;
+  color: string;
+  material: string;
 }
 
 const TSHIRT: Item = {
@@ -19,7 +22,10 @@ const TSHIRT: Item = {
   imageUrl: "/images/items/tshirt.png",
   price: "$39.99",
   description: "Relaxed fit cream T-shirt, defaulting to size M for this demo.",
-  recommendedIds: ["SHORTS", "SNEAKERS", "JACKET"]
+  recommendedIds: ["SHORTS", "SNEAKERS", "JACKET"],
+  category: "Streetwear",
+  color: "Cream",
+  material: "Cotton"
 };
 
 const SHORTS: Item = {
@@ -30,7 +36,10 @@ const SHORTS: Item = {
   imageUrl: "/images/items/shorts.png",
   price: "$49.99",
   description: "Lightweight tech shorts in size M for this demo.",
-  recommendedIds: ["TSHIRT", "SNEAKERS", "JACKET"]
+  recommendedIds: ["TSHIRT", "SNEAKERS", "JACKET"],
+  category: "Streetwear",
+  color: "Black",
+  material: "Polyester"
 };
 
 const SNEAKERS: Item = {
@@ -41,7 +50,10 @@ const SNEAKERS: Item = {
   imageUrl: "/images/items/sneakers.png",
   price: "$89.99",
   description: "Minimal white sneakers, shown in size 9.",
-  recommendedIds: ["TSHIRT", "SHORTS", "JACKET"]
+  recommendedIds: ["TSHIRT", "SHORTS", "JACKET"],
+  category: "Streetwear",
+  color: "White",
+  material: "Leather"
 };
 
 const JACKET: Item = {
@@ -52,7 +64,10 @@ const JACKET: Item = {
   imageUrl: "/images/items/jacket.png",
   price: "$79.99",
   description: "Light-wash denim jacket, defaulting to size M.",
-  recommendedIds: ["TSHIRT", "SHORTS", "SNEAKERS"]
+  recommendedIds: ["TSHIRT", "SHORTS", "SNEAKERS"],
+  category: "Old Money",
+  color: "Light Blue",
+  material: "Denim"
 };
 
 export const ITEMS: Record<ItemId, Item> = {
