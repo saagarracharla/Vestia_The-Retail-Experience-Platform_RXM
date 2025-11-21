@@ -27,18 +27,18 @@ let nextRequestId = 1;
 
 // Scan an item into a session
 app.post("/api/session/scan", (req, res) => {
-  console.log("📱 SCAN ITEM - Session:", req.body.sessionId, "SKU:", req.body.sku);
+  console.log("SCAN ITEM - Session:", req.body.sessionId, "SKU:", req.body.sku);
   
   const { sessionId, sku, name, color, size, category, material, price } = req.body;
 
   if (!sessionId || !sku) {
-    console.log("❌ SCAN FAILED - Missing sessionId or sku");
+    console.log("SCAN FAILED - Missing sessionId or sku");
     return res.status(400).json({ error: "sessionId and sku are required" });
   }
 
   if (!sessions[sessionId]) {
     sessions[sessionId] = { items: [] };
-    console.log("🆕 NEW SESSION CREATED:", sessionId);
+    console.log("NEW SESSION CREATED:", sessionId);
   }
 
   // Store enhanced item data for better analytics
@@ -54,7 +54,7 @@ app.post("/api/session/scan", (req, res) => {
   };
 
   sessions[sessionId].items.push(itemData);
-  console.log("✅ ITEM SCANNED:", itemData.name, "- Total items in session:", sessions[sessionId].items.length);
+  console.log("ITEM SCANNED:", itemData.name, "- Total items in session:", sessions[sessionId].items.length);
 
   res.json({
     sessionId,
@@ -75,12 +75,12 @@ app.get("/api/session/:id", (req, res) => {
 
 // Customer: submit a request for an item
 app.post("/api/request", (req, res) => {
-  console.log("🛒 NEW REQUEST - SKU:", req.body.sku, "Size:", req.body.requestedSize, "Color:", req.body.requestedColor);
+  console.log("NEW REQUEST - SKU:", req.body.sku, "Size:", req.body.requestedSize, "Color:", req.body.requestedColor);
   
   const { sessionId, sku, requestedSize, requestedColor } = req.body;
 
   if (!sessionId || !sku) {
-    console.log("❌ REQUEST FAILED - Missing sessionId or sku");
+    console.log("REQUEST FAILED - Missing sessionId or sku");
     return res.status(400).json({ error: "sessionId and sku are required" });
   }
 
@@ -94,7 +94,7 @@ app.post("/api/request", (req, res) => {
   };
 
   requests.push(request);
-  console.log("✅ REQUEST CREATED - ID:", request.id, "Status: Queued");
+  console.log("REQUEST CREATED - ID:", request.id, "Status: Queued");
   res.json(request);
 });
 
@@ -109,17 +109,17 @@ app.post("/api/request/:id/status", (req, res) => {
   const id = Number(req.params.id);
   const { status } = req.body;
   
-  console.log("🔄 STATUS UPDATE - Request ID:", id, "New Status:", status);
+  console.log("STATUS UPDATE - Request ID:", id, "New Status:", status);
 
   const request = requests.find((r) => r.id === id);
   if (!request) {
-    console.log("❌ REQUEST NOT FOUND - ID:", id);
+    console.log("REQUEST NOT FOUND - ID:", id);
     return res.status(404).json({ error: "Request not found" });
   }
 
   const oldStatus = request.status;
   request.status = status;
-  console.log("✅ STATUS CHANGED - ID:", id, "From:", oldStatus, "To:", status);
+  console.log("STATUS CHANGED - ID:", id, "From:", oldStatus, "To:", status);
   res.json(request);
 });
 
@@ -186,7 +186,7 @@ app.post("/api/feedback", (req, res) => {
 // P1 Retail Analytics
 
 app.get("/api/analytics", (req, res) => {
-  console.log("📊 ANALYTICS REQUEST");
+  console.log("ANALYTICS REQUEST");
   
   const totalSessions = Object.keys(sessions).length;
   const totalRequests = requests.length;
@@ -200,7 +200,7 @@ app.get("/api/analytics", (req, res) => {
   const allItems = Object.values(sessions).flatMap(session => session.items || []);
   const itemsTried = allItems.length;
 
-  console.log("📈 Analytics Summary - Sessions:", totalSessions, "Items Tried:", itemsTried, "Requests:", totalRequests);
+  console.log("Analytics Summary - Sessions:", totalSessions, "Items Tried:", itemsTried, "Requests:", totalRequests);
 
   // Calculate most selected size
   const sizeCounts = {};
@@ -268,7 +268,7 @@ app.get("/api/analytics", (req, res) => {
     ]
   };
 
-  console.log("📊 ANALYTICS RESPONSE:", JSON.stringify(analyticsData, null, 2));
+  console.log("ANALYTICS RESPONSE:", JSON.stringify(analyticsData, null, 2));
   res.json(analyticsData);
 });
 
@@ -1308,14 +1308,14 @@ app.get("/api/catalog/:sku", (req, res) => {
 
 const PORT = 4000;
 app.listen(PORT, () => {
-  console.log(`\n🚀 Backend API running on http://localhost:${PORT}`);
-  console.log(`\n📊 Algorithm Status:`);
-  console.log(`  ✅ Rule-based recommendation engine (enhanced)`);
-  console.log(`  ✅ Statistical analysis from session data`);
-  console.log(`  ✅ Dynamic profile generation`);
-  console.log(`  ✅ Explanation generation`);
-  console.log(`  ✅ Mix & Match combinatorial algorithm`);
-  console.log(`\n🔗 Available Endpoints:`);
+  console.log(`\nBackend API running on http://localhost:${PORT}`);
+  console.log(`\nAlgorithm Status:`);
+  console.log(`  - Rule-based recommendation engine (enhanced)`);
+  console.log(`  - Statistical analysis from session data`);
+  console.log(`  - Dynamic profile generation`);
+  console.log(`  - Explanation generation`);
+  console.log(`  - Mix & Match combinatorial algorithm`);
+  console.log(`\nAvailable Endpoints:`);
   console.log(`  POST /api/recommendations - Enhanced rule-based recommendations`);
   console.log(`  POST /api/mix-match      - Complete outfit generator (combinatorial)`);
   console.log(`  GET  /api/catalog        - View catalog items`);
@@ -1323,7 +1323,7 @@ app.listen(PORT, () => {
   console.log(`  GET  /api/session/:id    - Get session details`);
   console.log(`  POST /api/request        - Create size/color request`);
   console.log(`  GET  /api/analytics      - View analytics`);
-  console.log(`\n💡 Algorithm Complexity:`);
+  console.log(`\nAlgorithm Complexity:`);
   console.log(`  - Multi-factor optimization (6 scoring components)`);
   console.log(`  - Statistical co-occurrence analysis`);
   console.log(`  - Combinatorial generation O(n × m × k)`);

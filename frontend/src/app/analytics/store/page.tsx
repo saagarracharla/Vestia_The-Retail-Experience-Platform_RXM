@@ -148,7 +148,7 @@ export default function StoreAnalyticsPage() {
             <div className="space-y-3">
               {analytics?.ratingDistribution?.map((rating) => (
                 <div key={rating.rating} className="flex items-center gap-3">
-                  <div className="w-12 text-sm font-medium text-[#4F2F14]">{rating.rating} ⭐</div>
+                  <div className="w-12 text-sm font-medium text-[#4F2F14]">{rating.rating} stars</div>
                   <div className="flex-1 bg-[#E5D3B8] rounded-full h-3">
                     <div 
                       className="bg-[#8A623C] h-3 rounded-full transition-all duration-500"
