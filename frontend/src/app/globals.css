@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+:root {
+  --background: #F5F5F5;
+  --foreground: #1A1A1A;
+  --foreground-secondary: #666666;
+  --accent: #0066CC;
+  --accent-hover: #0052A3;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Scrollbar Hide Utility */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Drag Scroll Utility */
+.drag-scroll {
+  cursor: grab;
+  user-select: none;
+}
+.drag-scroll:active {
+  cursor: grabbing;
+}
+.drag-scroll * {
+  pointer-events: none;
+}
+.drag-scroll .clickable {
+  pointer-events: auto;
+}
+
+/* Welcome Screen Animations */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.8s ease-out forwards;
+}
+
+.animate-fade-in-up-delay {
+  animation: fade-in-up 0.8s ease-out 0.2s forwards;
+  opacity: 0;
+}
+
+.animate-fade-in-up-delay-2 {
+  animation: fade-in-up 0.8s ease-out 0.4s forwards;
+  opacity: 0;
+}
+
+/* Notification Animation */
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-elegant {
+  from {
+    transform: translateX(100%) scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes progress {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
+
+.animate-slide-in-elegant {
+  animation: slide-in-elegant 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-progress {
+  animation: progress linear;
+}
