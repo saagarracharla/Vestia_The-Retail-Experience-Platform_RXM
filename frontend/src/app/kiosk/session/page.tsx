@@ -367,15 +367,15 @@ export default function SessionKioskPage() {
   function getImageUrlForSku(sku: string): string {
     // Map backend catalog SKUs to frontend images
     const imageMap: { [key: string]: string } = {
-      "119704139_1": "/images/items/tshirt.png",   // Blue Shirt -> T-shirt
-      "119704139_2": "/images/items/tshirt.png",   // Navy T-shirt -> T-shirt
-      "120556789_1": "/images/items/shorts.png",   // Khaki Chinos -> Shorts
-      "120556789_2": "/images/items/shorts.png",   // Black Jeans -> Shorts
-      "120556789_3": "/images/items/shorts.png",   // Grey Pants -> Shorts
-      "121445678_1": "/images/items/sneakers.png", // White Sneakers
-      "121445678_2": "/images/items/sneakers.png", // Black Running Shoes
-      "121445678_3": "/images/items/sneakers.png", // Brown Loafers
-      "122334455_1": "/images/items/jacket.png",   // Navy Blazer -> Jacket
+      "119704139_1": "/images/items/Classic Blue Slim-Fit Oxford Shirt.jpg",
+      "119704139_2": "/images/items/Navy Blue Crew Neck T-Shirt h&m.jpeg",
+      "120556789_1": "/images/items/Slim-Fit Khaki Chinos levis.jpeg",
+      "120556789_2": "/images/items/Black Skinny Jeans levis.jpeg",
+      "120556789_3": "/images/items/Grey Dress Pants zara.jpg",
+      "121445678_1": "/images/items/White Leather Sneakers Nike.jpeg",
+      "121445678_2": "/images/items/Black Running Shoes adidas.jpg",
+      "121445678_3": "/images/items/Brown Leather Loafers clarks.jpeg",
+      "122334455_1": "/images/items/Navy Blazer zara.jpg",
       "111": "/images/items/tshirt.png",
       "222": "/images/items/shorts.png",
       "333": "/images/items/sneakers.png",

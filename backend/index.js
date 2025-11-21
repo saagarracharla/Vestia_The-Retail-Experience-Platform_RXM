@@ -286,7 +286,7 @@ const mockCatalog = [
     styleTags: ["slim-fit", "casual", "oxford"],
     inStock: true,
     storeId: "STORE-001",
-    image: "/images/119704139_1.jpg",
+    image: "/images/items/Classic Blue Slim-Fit Oxford Shirt.jpg",
     likes: 234
   },
   {
@@ -300,7 +300,7 @@ const mockCatalog = [
     styleTags: ["casual", "basic"],
     inStock: true,
     storeId: "STORE-001",
-    image: "/images/119704139_2.jpg",
+    image: "/images/items/Navy Blue Crew Neck T-Shirt h&m.jpeg",
     likes: 156
   },
   {
@@ -314,7 +314,7 @@ const mockCatalog = [
     styleTags: ["slim-fit", "casual", "chinos"],
     inStock: true,
     storeId: "STORE-001",
-    image: "/images/120556789_1.jpg",
+    image: "/images/items/Slim-Fit Khaki Chinos levis.jpeg",
     likes: 412
   },
   {
@@ -328,7 +328,7 @@ const mockCatalog = [
     styleTags: ["skinny", "casual", "denim"],
     inStock: true,
     storeId: "STORE-001",
-    image: "/images/120556789_2.jpg",
+    image: "/images/items/Black Skinny Jeans levis.jpeg",
     likes: 523
   },
   {
@@ -342,7 +342,7 @@ const mockCatalog = [
     styleTags: ["slim-fit", "formal", "dress"],
     inStock: true,
     storeId: "STORE-001",
-    image: "/images/120556789_3.jpg",
+    image: "/images/items/Grey Dress Pants zara.jpg",
     likes: 298
   },
   {
@@ -356,7 +356,7 @@ const mockCatalog = [
     styleTags: ["casual", "athletic", "sneakers"],
     inStock: true,
     storeId: "STORE-001",
-    image: "/images/121445678_1.jpg",
+    image: "/images/items/White Leather Sneakers Nike.jpeg",
     likes: 891
   },
   {
@@ -370,7 +370,7 @@ const mockCatalog = [
     styleTags: ["casual", "athletic", "running"],
     inStock: true,
     storeId: "STORE-001",
-    image: "/images/121445678_2.jpg",
+    image: "/images/items/Black Running Shoes adidas.jpg",
     likes: 667
   },
   {
@@ -384,7 +384,7 @@ const mockCatalog = [
     styleTags: ["formal", "leather", "loafers"],
     inStock: true,
     storeId: "STORE-001",
-    image: "/images/121445678_3.jpg",
+    image: "/images/items/Brown Leather Loafers clarks.jpeg",
     likes: 445
   },
   {
@@ -398,7 +398,7 @@ const mockCatalog = [
     styleTags: ["formal", "blazer", "slim-fit"],
     inStock: true,
     storeId: "STORE-001",
-    image: "/images/122334455_1.jpg",
+    image: "/images/items/Navy Blazer zara.jpg",
     likes: 712
   }
 ];
