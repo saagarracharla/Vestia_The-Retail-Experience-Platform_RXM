@@ -5,7 +5,7 @@ const client = new DynamoDBClient({});
 
 export const handler = async (event) => {
   try {
-    const body = JSON.parse(event.body);
+    const body = event.body ? JSON.parse(event.body) : event;
 
     const {
       sessionId,
@@ -15,7 +15,9 @@ export const handler = async (event) => {
       size,
       category,
       material,
-      price
+      price,
+      storeId,
+      kioskId
     } = body;
 
     if (!sessionId || !sku) {
@@ -28,15 +30,24 @@ export const handler = async (event) => {
     const timestamp = new Date().toISOString();
 
     const item = {
+      PK: `SESSION#${sessionId}`,
+      SK: `SCAN#${timestamp}`,
+
+      entityType: "SCAN",
+
       sessionId,
-      scannedAt: timestamp, // <-- ACTUAL SORT KEY
+      storeId,
+      kioskId,
+
       sku,
-      name: name || `Item ${sku}`,
-      color: color || "Unknown",
-      size: size || "Unknown",
-      category: category || "General",
-      material: material || "Unknown",
-      price: price || 0
+      name,
+      color,
+      size,
+      category,
+      material,
+      price,
+
+      createdAt: timestamp
     };
 
     await client.send(
