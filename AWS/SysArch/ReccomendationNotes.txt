@@ -1,0 +1,14 @@
+Phase 1 Algorithm
+
+Vestia’s cold-start recommendation engine computes a weighted compatibility score between a base item and candidate items using a combination of:
+	•	color compatibility probabilities
+	•	category transition likelihoods
+	•	item co-occurrence frequencies
+	•	price similarity
+	•	style overlap
+
+All weights are derived from publicly available fashion datasets and normalized prior to deployment.
+
+1️⃣ Design ProductCatalog DynamoDB schema
+2️⃣ Rewrite your recommendation logic as capstone-ready pseudocode
+3️⃣ Map Polyvore dataset → your AWS tables
