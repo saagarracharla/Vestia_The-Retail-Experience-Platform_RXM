@@ -1,0 +1,278 @@
+VESTIA RETAIL EXPERIENCE PLATFORM (RXM) - LAMBDA FUNCTIONS DOCUMENTATION
+================================================================================
+
+This document provides comprehensive documentation for the 8 Lambda functions that power the Vestia Retail Experience Platform. The platform enables customers to interact with retail kiosks, make product requests, and receive personalized recommendations.
+
+ARCHITECTURE OVERVIEW
+--------------------
+- Runtime: Node.js 24.x
+- Database: DynamoDB (VestiaSessions table)
+- Region: ca-central-1
+- Data Model: Uses composite keys (PK/SK) for multi-entity storage
+
+================================================================================
+
+1. VESTIA-REQUEST-UPDATE
+========================
+Purpose: Updates the status of customer product requests and handles workflow automation
+
+Key Functionality:
+- Updates request status (QUEUED → CLAIMED → DELIVERED)
+- Maintains dual records (store view for staff, session view for kiosk)
+- Auto-creates scan records when requests are marked as DELIVERED
+- Supports employee assignment tracking
+
+Input Parameters:
+- requestId (path parameter)
+- storeId, sessionId, status (required in body)
+- employeeId (optional in body)
+
+Status Flow:
+QUEUED → CLAIMED → DELIVERED
+
+Special Features:
+- When status = "DELIVERED", automatically creates a SCAN record
+- Updates both STORE#{storeId} and SESSION#{sessionId} records
+- Validates required fields and request existence
+
+DynamoDB Operations:
+- GetCommand: Retrieves existing request
+- UpdateCommand: Updates both store and session copies
+- PutCommand: Creates scan record on delivery
+
+================================================================================
+
+2. VESTIA-REQUEST-POST
+======================
+Purpose: Creates new product requests from customer kiosk interactions
+
+Key Functionality:
+- Generates unique request IDs (REQ-XXXXXX format)
+- Creates dual records for different access patterns
+- Sets initial status to "QUEUED"
+- Captures product details and customer preferences
+
+Input Parameters:
+- storeId, sessionId, sku (required)
+- requestedSize, requestedColor, category (optional)
+
+Record Structure:
+- Store Record: PK=STORE#{storeId}, SK=REQUEST#{requestId}
+- Session Record: PK=SESSION#{sessionId}, SK=REQUEST#{requestId}
+
+DynamoDB Operations:
+- PutCommand: Creates both store and session records simultaneously
+
+================================================================================
+
+3. VESTIA-SESSION-HANDLER
+=========================
+Purpose: Placeholder function for session management (currently not implemented)
+
+Current Status: Contains only default Lambda template
+Implementation: Returns "Hello from Lambda!" message
+
+Note: This function appears to be reserved for future session management features but is not currently active in the system.
+
+================================================================================
+
+4. VESTIA-RECOMMEND
+===================
+Purpose: Provides AI-powered product recommendations based on compatibility scoring
+
+Key Functionality:
+- Analyzes base product attributes (article type, color)
+- Queries compatibility statistics from separate table
+- Scores potential matches using article type and color compatibility
+- Returns top 5 recommendations sorted by score
+
+Input Parameters:
+- productId (base product for recommendations)
+- targetCategory (category to search for recommendations)
+
+Scoring Algorithm:
+- Article Type Compatibility: Looks up ARTICLE stats
+- Color Compatibility: Looks up COLOR stats
+- Combined scoring with decimal precision
+
+Environment Variables:
+- PRODUCT_TABLE: "ProductCatalog"
+- COMPAT_TABLE: "CompatibilityStats"
+
+DynamoDB Operations:
+- GetCommand: Retrieves base product and compatibility scores
+- ScanCommand: Finds candidate products in target category
+
+================================================================================
+
+5. VESTIA-SESSION-GET
+=====================
+Purpose: Retrieves all items (requests, scans) associated with a customer session
+
+Key Functionality:
+- Fetches complete session history
+- Returns all items with SESSION#{sessionId} partition key
+- Provides kiosk view of customer activity
+
+Input Parameters:
+- sessionId (path parameter)
+
+Response Format:
+- sessionId
+- items array (all session-related records)
+
+DynamoDB Operations:
+- QueryCommand: Retrieves all items for session partition
+
+================================================================================
+
+6. VESTIA-SESSION-SCAN
+======================
+Purpose: Records product scans from kiosk interactions
+
+Key Functionality:
+- Creates scan records when customers scan product barcodes
+- Captures detailed product information
+- Associates scans with sessions and stores
+- Timestamps all scan events
+
+Input Parameters:
+- sessionId, sku (required)
+- name, color, size, category, material, price (optional)
+- storeId, kioskId (optional)
+
+Record Structure:
+- PK: SESSION#{sessionId}
+- SK: SCAN#{timestamp}
+- entityType: "SCAN"
+
+DynamoDB Operations:
+- PutCommand: Creates new scan record
+
+================================================================================
+
+7. VESTIA-REQUEST-GET
+=====================
+Purpose: Retrieves product requests for store staff dashboard
+
+Key Functionality:
+- Fetches all requests for a specific store
+- Supports status filtering (QUEUED, CLAIMED, DELIVERED)
+- Provides staff view of pending and completed requests
+- Returns request count and details
+
+Input Parameters:
+- storeId (path parameter)
+- status (optional query parameter for filtering)
+
+Query Pattern:
+- PK: STORE#{storeId}
+- SK: begins_with("REQUEST#")
+
+DynamoDB Operations:
+- QueryCommand: Retrieves store requests with optional filtering
+
+================================================================================
+
+8. VESTIA-REQUEST-CLAIM
+=======================
+Purpose: Allows store employees to claim queued customer requests
+
+Key Functionality:
+- Validates request exists and is in QUEUED status
+- Prevents double-claiming through status checks
+- Updates both store and session records
+- Tracks employee assignment and claim timestamp
+
+Input Parameters:
+- requestId (path parameter)
+- storeId, sessionId, employeeId (required in body)
+
+Status Validation:
+- Only QUEUED requests can be claimed
+- Returns 409 error for invalid status transitions
+
+Claim Process:
+1. Fetch and validate current request status
+2. Update status to "CLAIMED"
+3. Record employee ID and claim timestamp
+4. Update both store and session copies
+
+DynamoDB Operations:
+- GetCommand: Validates current request state
+- UpdateCommand: Updates both store and session records
+
+================================================================================
+
+DATA MODEL SUMMARY
+==================
+
+Primary Table: VestiaSessions
+Partition Key (PK) Patterns:
+- SESSION#{sessionId} - Customer kiosk view
+- STORE#{storeId} - Staff dashboard view
+
+Sort Key (SK) Patterns:
+- REQUEST#{requestId} - Product requests
+- SCAN#{timestamp} - Product scans
+
+Entity Types:
+- REQUEST: Customer product requests
+- SCAN: Product barcode scans
+
+Status Values:
+- QUEUED: Initial request state
+- CLAIMED: Assigned to employee
+- DELIVERED: Completed request
+
+================================================================================
+
+INTEGRATION POINTS
+==================
+
+1. Kiosk Interface:
+   - vestia-session-scan: Records product scans
+   - vestia-request-post: Creates new requests
+   - vestia-session-get: Displays session history
+
+2. Staff Dashboard:
+   - vestia-request-get: Lists store requests
+   - vestia-request-claim: Assigns requests to employees
+   - vestia-request-update: Updates request status
+
+3. Recommendation Engine:
+   - vestia-recommend: Provides product suggestions
+   - Integrates with ProductCatalog and CompatibilityStats tables
+
+4. Workflow Automation:
+   - vestia-request-update: Auto-creates scans on delivery
+   - Maintains data consistency across views
+
+================================================================================
+
+SECURITY & PERMISSIONS
+======================
+
+Each function has dedicated IAM roles with minimal required permissions:
+- DynamoDB read/write access to VestiaSessions table
+- CloudWatch logging permissions
+- vestia-recommend also accesses ProductCatalog and CompatibilityStats tables
+
+All functions follow AWS security best practices with least-privilege access.
+
+================================================================================
+
+MONITORING & LOGGING
+====================
+
+All functions log to CloudWatch with function-specific log groups:
+- /aws/lambda/vestia-request-update
+- /aws/lambda/vestia-request-post
+- /aws/lambda/vestia-session-handler
+- /aws/lambda/vestia-recommend
+- /aws/lambda/vestia-session-get
+- /aws/lambda/vestia-session-scan
+- /aws/lambda/vestia-request-get
+- /aws/lambda/vestia-request-claim
+
+Error handling includes structured logging for debugging and monitoring.
