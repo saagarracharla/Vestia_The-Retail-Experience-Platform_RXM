@@ -1,17 +1,20 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { VestiaAPI } from "@/lib/api";
 
 type RequestItem = {
   id: number;
   sessionId: string;
   sku: string;
+  kioskId?: string;
   requestedSize: string | null;
   requestedColor: string | null;
   status: string;
+  requestId?: string;
+  name?: string;
+  price?: number;
 };
-
-const BACKEND_URL = "http://localhost:4000";
 
 export default function AdminPage() {
   const [requests, setRequests] = useState<RequestItem[]>([]);
@@ -22,12 +25,36 @@ export default function AdminPage() {
   async function loadRequests() {
     setLoading(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/requests`);
-      if (!res.ok) {
-        throw new Error("Failed to load requests");
+      // Call the real AWS store requests endpoint
+      const response = await fetch("https://993toyh3x5.execute-api.ca-central-1.amazonaws.com/store/STORE-001/request", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
-      const data = await res.json();
-      setRequests(data || []);
+
+      const data = await response.json();
+      
+      // Transform AWS response to match admin page format
+      const transformedRequests = data.requests.map((req: any, index: number) => ({
+        id: index + 1, // Use index as ID for display
+        sessionId: req.sessionId,
+        sku: req.sku,
+        requestedSize: req.requestedSize,
+        requestedColor: req.requestedColor,
+        status: req.status,
+        requestId: req.requestId, // Keep original requestId for updates
+        name: req.name, // This will be null in normalized schema
+        price: req.price // This will be null in normalized schema
+      }));
+
+      setRequests(transformedRequests);
+      setMessage(data.requests.length > 0 ? `Loaded ${data.requests.length} requests` : "No pending requests");
+      setMessageType("success");
     } catch (err) {
       console.error(err);
       setMessage("Failed to load requests.");
@@ -37,41 +64,46 @@ export default function AdminPage() {
     }
   }
 
-  async function updateRequestStatus(id: number, status: string) {
+  async function updateRequestStatus(id: number, status: string, action?: string) {
     setMessage("");
     try {
-      const res = await fetch(`${BACKEND_URL}/api/request/${id}/status`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json();
-        setMessage(errorData.error || "Failed to update request.");
-        setMessageType("error");
-        return;
+      const request = requests.find(r => r.id === id);
+      if (!request || !request.requestId) {
+        throw new Error("Request not found");
       }
 
-      const updatedRequest = await res.json();
-      setMessage(`Request ${id} marked as ${status}.`);
+      const body: any = {};
+      if (status) body.status = status;
+      if (action) body.action = action;
+
+      const response = await fetch(`https://993toyh3x5.execute-api.ca-central-1.amazonaws.com/request/${request.requestId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to update request");
+      }
+
+      const result = await response.json();
+      setMessage(`Request ${request.requestId} updated to ${result.status}${result.autoScan ? ' (item delivered to kiosk)' : ''}`);
       setMessageType("success");
-      
-      // Trigger kiosk notification by broadcasting to localStorage
-      const notificationData = {
-        requestId: id,
-        status: status,
-        timestamp: Date.now()
-      };
-      localStorage.setItem('kioskNotification', JSON.stringify(notificationData));
       
       await loadRequests();
     } catch (err) {
       console.error(err);
-      setMessage("Network error while updating request.");
+      setMessage(`Failed to update request: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setMessageType("error");
     }
   }
+
+  const handleCancel = (id: number) => updateRequestStatus(id, "CANCELLED");
+  const handlePickup = (id: number) => updateRequestStatus(id, "CLAIMED");
+  const handleDeliver = (id: number) => updateRequestStatus(id, "", "delivered");
 
   useEffect(() => {
     loadRequests();
@@ -164,7 +196,7 @@ export default function AdminPage() {
               <table className="w-full">
                 <thead className="bg-[#F1DDC0] text-[#5B3D1C] text-left uppercase text-xs tracking-[0.2em]">
                   <tr>
-                    {["ID", "Session ID", "SKU", "Requested Size", "Requested Colour", "Status", "Actions"].map(
+                    {["ID", "Session ID", "SKU", "Kiosk", "Size", "Color", "Status", "Actions"].map(
                       (heading) => (
                         <th key={heading} className="px-8 py-4 font-semibold">
                           {heading}

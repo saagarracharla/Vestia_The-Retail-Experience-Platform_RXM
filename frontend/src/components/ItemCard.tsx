@@ -1,16 +1,11 @@
 "use client";
 
-interface Item {
-  sku: string;
-  name: string;
-  color: string;
-  size: string;
-}
+import { ItemWithProduct } from "@/lib/api";
 
 interface ItemCardProps {
-  item: Item;
-  onRequestSize: (item: Item) => void;
-  onLeaveFeedback: (item: Item) => void;
+  item: ItemWithProduct;
+  onRequestSize: (item: ItemWithProduct) => void;
+  onLeaveFeedback: (item: ItemWithProduct) => void;
 }
 
 export default function ItemCard({
@@ -41,17 +36,17 @@ export default function ItemCard({
       {/* Product Info */}
       <div className="p-5">
         <h3 className="text-lg font-semibold text-gray-900 mb-2 line-clamp-2">
-          {item.name}
+          {item.product?.name || 'Unknown Product'}
         </h3>
         <div className="space-y-1 mb-4">
           <p className="text-sm text-gray-600">SKU: {item.sku}</p>
           <div className="flex items-center gap-3">
             <span className="text-sm font-medium text-gray-700">
-              {item.color}
+              {item.product?.color || 'Unknown Color'}
             </span>
             <span className="text-gray-300">•</span>
             <span className="text-sm font-medium text-gray-700">
-              Size {item.size}
+              ${item.product?.price || 'N/A'}
             </span>
           </div>
         </div>
