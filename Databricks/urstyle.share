@@ -1,0 +1,5 @@
+{
+  "shareCredentialsVersion": 1,
+  "endpoint": "https://ireland.cloud.databricks.com/api/2.0/delta-sharing/metastores/77c23b33-40ac-4260-ac86-c50744db0dfd",
+  "bearerToken": "CLT4kJfvhS2Q6nFysaUt8k7HZnsYg5LLWjsCB79lhyQc7aS5cXI6DVxgyAAwLT8B"
+}
