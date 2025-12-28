@@ -49,6 +49,9 @@ export interface ProductData {
 // Combined type for UI rendering
 export interface ItemWithProduct extends SessionItem {
   product?: ProductData;
+  derivedSize?: string | null;
+  derivedColor?: string | null;
+  isDelivered?: boolean;
 }
 
 export interface SessionData {
@@ -139,15 +142,15 @@ export class VestiaAPI {
   }
 
   static async cancelRequest(requestId: string): Promise<void> {
-    return this.updateRequest(requestId, { status: "CANCELLED" });
+    await this.updateRequest(requestId, { status: "CANCELLED" });
   }
 
   static async pickupRequest(requestId: string): Promise<void> {
-    return this.updateRequest(requestId, { status: "CLAIMED" });
+    await this.updateRequest(requestId, { status: "CLAIMED" });
   }
 
   static async deliverRequest(requestId: string): Promise<void> {
-    return this.updateRequest(requestId, { action: "delivered" });
+    await this.updateRequest(requestId, { action: "delivered" });
   }
 
   static async claimRequest(requestId: string, employeeId: string): Promise<void> {
@@ -163,6 +166,56 @@ export class VestiaAPI {
 
   // Helper to get session with product data
   static async getSessionWithProducts(sessionId: string): Promise<ItemWithProduct[]> {
+    const sessionData = await this.getSession(sessionId);
+    
+    // Filter to only SCAN events and sort by createdAt ASC
+    const scanEvents = sessionData.items
+      .filter(item => item.entityType === "SCAN")
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    
+    // Get all REQUEST events for attribute derivation
+    const requestEvents = sessionData.items
+      .filter(item => item.entityType === "REQUEST" && item.status === "DELIVERED");
+    
+    const uniqueSkus = [...new Set(scanEvents.map(item => item.sku))];
+    
+    const productPromises = uniqueSkus.map(sku => 
+      this.getProduct(sku).catch(err => {
+        console.error(`Failed to fetch product ${sku}:`, err);
+        return null;
+      })
+    );
+    
+    const products = await Promise.all(productPromises);
+    const productMap = new Map<string, ProductData>();
+    
+    products.forEach((product, index) => {
+      if (product) {
+        productMap.set(uniqueSkus[index], product);
+      }
+    });
+    
+    return scanEvents.map(scanItem => {
+      // Find matching delivered request for this SCAN
+      const matchingRequest = requestEvents.find(req => 
+        req.sessionId === scanItem.sessionId &&
+        req.sku === scanItem.sku &&
+        new Date(req.createdAt).getTime() <= new Date(scanItem.createdAt).getTime()
+      );
+      
+      return {
+        ...scanItem,
+        product: productMap.get(scanItem.sku),
+        // Add derived attributes from matching request
+        derivedSize: matchingRequest?.requestedSize || null,
+        derivedColor: matchingRequest?.requestedColor || null,
+        isDelivered: scanItem.source === "staff"
+      };
+    });
+  }
+
+  // Helper to get all session events with product data (for admin/analytics)
+  static async getAllSessionEventsWithProducts(sessionId: string): Promise<ItemWithProduct[]> {
     const sessionData = await this.getSession(sessionId);
     const uniqueSkus = [...new Set(sessionData.items.map(item => item.sku))];
     

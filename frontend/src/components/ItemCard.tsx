@@ -42,13 +42,23 @@ export default function ItemCard({
           <p className="text-sm text-gray-600">SKU: {item.sku}</p>
           <div className="flex items-center gap-3">
             <span className="text-sm font-medium text-gray-700">
-              {item.product?.color || 'Unknown Color'}
+              {item.derivedColor || item.product?.color || 'Unknown Color'}
+            </span>
+            <span className="text-gray-300">•</span>
+            <span className="text-sm font-medium text-gray-700">
+              {item.derivedSize ? `Size ${item.derivedSize}` : 'Size N/A'}
             </span>
             <span className="text-gray-300">•</span>
             <span className="text-sm font-medium text-gray-700">
               ${item.product?.price || 'N/A'}
             </span>
           </div>
+          {item.isDelivered && (
+            <div className="flex items-center gap-1 text-green-600">
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+              <span className="text-xs font-medium">Delivered by staff</span>
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}

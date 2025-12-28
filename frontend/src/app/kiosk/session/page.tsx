@@ -22,6 +22,10 @@ export default function SessionKioskPage() {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("success");
 
+  // Loading states
+  const [isScanning, setIsScanning] = useState(false);
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+
   // Modal states
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
@@ -108,14 +112,25 @@ export default function SessionKioskPage() {
 
   // Mock system removed - notifications will work when backend implements /api/requests/status endpoint
 
-  // TODO: Implement delivered items polling when AWS endpoint is available
-  // useEffect(() => {
-  //   if (!sessionId) return;
-  //   const pollDelivered = setInterval(async () => {
-  //     // Poll for delivered items
-  //   }, 3000);
-  //   return () => clearInterval(pollDelivered);
-  // }, [sessionId, items]);
+  // Poll for delivered items every 3 seconds
+  useEffect(() => {
+    if (!sessionId) return;
+    
+    const pollDelivered = setInterval(async () => {
+      try {
+        const itemsWithProducts = await VestiaAPI.getSessionWithProducts(sessionId);
+        setItems(itemsWithProducts);
+        // Update selected index if new items were added
+        if (itemsWithProducts.length > items.length) {
+          setSelectedMainIndex(itemsWithProducts.length - 1);
+        }
+      } catch (err) {
+        console.error("Failed to poll for delivered items:", err);
+      }
+    }, 3000);
+    
+    return () => clearInterval(pollDelivered);
+  }, [sessionId, items.length]);
 
   async function loadSession(id: string) {
     try {
@@ -134,6 +149,9 @@ export default function SessionKioskPage() {
       setMessageType("error");
       return;
     }
+
+    if (isScanning) return; // Prevent double-clicks
+    setIsScanning(true);
 
     try {
       // Send only SKU to backend
@@ -156,6 +174,8 @@ export default function SessionKioskPage() {
       console.error("Failed to scan item:", err);
       setMessage(`Failed to scan item: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setMessageType("error");
+    } finally {
+      setIsScanning(false);
     }
   }
 
@@ -177,6 +197,11 @@ export default function SessionKioskPage() {
         requestedSize,
         requestedColor,
       });
+
+      // Refresh session to show any updates
+      const itemsWithProducts = await VestiaAPI.getSessionWithProducts(sessionId || "demo_session");
+      setItems(itemsWithProducts);
+      setSelectedMainIndex((itemsWithProducts || []).length - 1);
 
       setMessage("Request sent successfully!");
       setMessageType("success");
@@ -390,9 +415,12 @@ export default function SessionKioskPage() {
                       <div className="flex-1">
                         <h3 className="text-3xl font-semibold text-[#3B2A21] mb-4">{mainItem.product?.name || 'Unknown Product'}</h3>
                         <div className="flex gap-3 mb-6">
-                          <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">{mainItem.product?.color}</span>
-                          <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">Size N/A</span>
+                          <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">{mainItem.derivedColor || mainItem.product?.color || 'Unknown Color'}</span>
+                          <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">{mainItem.derivedSize ? `Size ${mainItem.derivedSize}` : 'Size N/A'}</span>
                           <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">${mainItem.product?.price || 75}</span>
+                          {mainItem.isDelivered && (
+                            <span className="px-4 py-2 bg-green-100 text-green-700 text-base rounded-full font-medium">✓ Delivered</span>
+                          )}
                         </div>
                         <div className="flex flex-col gap-3">
                           <button
@@ -459,11 +487,11 @@ export default function SessionKioskPage() {
                               <div className="flex-1 min-w-0 flex flex-col justify-between">
                                 <div>
                                   <h4 className="font-semibold text-[#3B2A21] text-base mb-2 truncate">{item.product?.name || 'Unknown Product'}</h4>
-                                  <p className="text-[#3B2A21] text-sm mb-2">SKU: {item.sku}</p>
+                                  <p className="text-[#3B2A21] text-sm mb-2">SKU: {item.sku} {item.isDelivered && <span className="text-green-600 font-medium">• Delivered</span>}</p>
                                 </div>
                                 <div className="flex flex-wrap gap-2">
-                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">{item.product?.color}</span>
-                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">Size N/A</span>
+                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">{item.derivedColor || item.product?.color || 'Unknown'}</span>
+                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">{item.derivedSize ? `Size ${item.derivedSize}` : 'Size N/A'}</span>
                                   <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">${item.product?.price || 75}</span>
                                 </div>
                               </div>
@@ -603,7 +631,7 @@ export default function SessionKioskPage() {
               <p className="text-sm text-gray-600 mb-1">Current Item</p>
               <p className="font-medium text-gray-900">{selectedItem.product?.name || 'Unknown Product'}</p>
               <p className="text-sm text-gray-600">
-                {selectedItem.product?.color} • Size N/A
+                {selectedItem.derivedColor || selectedItem.product?.color || 'Unknown'} • {selectedItem.derivedSize ? `Size ${selectedItem.derivedSize}` : 'Size N/A'}
               </p>
             </div>
             <div>

@@ -41,15 +41,16 @@ export default function AdminPage() {
       
       // Transform AWS response to match admin page format
       const transformedRequests = data.requests.map((req: any, index: number) => ({
-        id: index + 1, // Use index as ID for display
+        id: index + 1,
         sessionId: req.sessionId,
         sku: req.sku,
+        kioskId: req.kioskId,
         requestedSize: req.requestedSize,
         requestedColor: req.requestedColor,
         status: req.status,
-        requestId: req.requestId, // Keep original requestId for updates
-        name: req.name, // This will be null in normalized schema
-        price: req.price // This will be null in normalized schema
+        requestId: req.requestId,
+        name: req.name,
+        price: req.price
       }));
 
       setRequests(transformedRequests);
@@ -224,6 +225,11 @@ export default function AdminPage() {
                       <td className="px-8 py-5 text-[#4F2F14] font-semibold">
                         {r.sku}
                       </td>
+                      <td className="px-8 py-5">
+                        <span className="text-xs tracking-wide font-mono bg-[#E8F4FD] text-[#1E40AF] px-3 py-1 rounded-full">
+                          {r.kioskId || "Unknown"}
+                        </span>
+                      </td>
                       <td className="px-8 py-5 text-[#7A4F2B]">
                         {r.requestedSize || "—"}
                       </td>
@@ -240,30 +246,33 @@ export default function AdminPage() {
                         </span>
                       </td>
                       <td className="px-8 py-5">
-                        <div className="flex gap-2 items-center flex-nowrap">
-                          {r.status !== "Delivered" && r.status !== "Cancelled" && (
+                        <div className="flex gap-2 items-center flex-wrap">
+                          {r.status === "QUEUED" && (
+                            <>
+                              <button
+                                onClick={() => handleCancel(r.id)}
+                                className="px-3 py-1.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 hover:bg-red-200 transition"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={() => handlePickup(r.id)}
+                                className="px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 hover:bg-blue-200 transition"
+                              >
+                                Picked Up
+                              </button>
+                            </>
+                          )}
+                          {r.status === "CLAIMED" && (
                             <button
-                              onClick={() => updateRequestStatus(r.id, "Delivered")}
-                              className="px-4 py-2 rounded-full text-sm font-semibold bg-[#C7A070] text-[#3F250F] hover:bg-[#B88D57] transition whitespace-nowrap"
+                              onClick={() => handleDeliver(r.id)}
+                              className="px-3 py-1.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 hover:bg-green-200 transition"
                             >
-                              Mark Delivered
+                              Delivered
                             </button>
                           )}
-                          {r.status === "Queued" && (
-                            <button
-                              onClick={() => updateRequestStatus(r.id, "PickedUp")}
-                              className="px-4 py-2 rounded-full text-sm font-semibold bg-[#E2C291] text-[#3F250F] hover:bg-[#D5AF75] transition whitespace-nowrap"
-                            >
-                              Pick Up
-                            </button>
-                          )}
-                          {r.status !== "Cancelled" && r.status !== "Delivered" && (
-                            <button
-                              onClick={() => updateRequestStatus(r.id, "Cancelled")}
-                              className="px-4 py-2 rounded-full text-sm font-semibold bg-[#B86B4D] text-[#FFF7EB] hover:bg-[#A5553B] transition whitespace-nowrap"
-                            >
-                              Cancel
-                            </button>
+                          {(r.status === "DELIVERED" || r.status === "CANCELLED") && (
+                            <span className="text-xs text-gray-500">No actions</span>
                           )}
                         </div>
                       </td>

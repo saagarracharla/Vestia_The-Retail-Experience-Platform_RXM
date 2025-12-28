@@ -23,6 +23,10 @@ export default function KioskPage() {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("success");
 
+  // Loading states
+  const [isScanning, setIsScanning] = useState(false);
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+
   // Modal states
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
@@ -50,6 +54,9 @@ export default function KioskPage() {
       setMessageType("error");
       return;
     }
+
+    if (isScanning) return; // Prevent double-clicks
+    setIsScanning(true);
 
     // Initialize session on first scan
     if (!sessionId) {
@@ -83,6 +90,8 @@ export default function KioskPage() {
       console.error("Scan error:", err);
       setMessage(`Failed to scan item: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setMessageType("error");
+    } finally {
+      setIsScanning(false);
     }
   }
 
@@ -96,6 +105,9 @@ export default function KioskPage() {
   async function submitRequest() {
     if (!selectedItem || !sessionId) return;
 
+    if (isSubmittingRequest) return; // Prevent double-clicks
+    setIsSubmittingRequest(true);
+
     setMessage("");
     try {
       await VestiaAPI.createRequest({
@@ -104,6 +116,10 @@ export default function KioskPage() {
         requestedSize: requestedSize || undefined,
         requestedColor: requestedColor || undefined,
       });
+
+      // Refresh session to show any updates
+      const itemsWithProducts = await VestiaAPI.getSessionWithProducts(sessionId);
+      setItems(itemsWithProducts || []);
 
       setMessage("Request sent successfully!");
       setMessageType("success");
@@ -115,6 +131,8 @@ export default function KioskPage() {
       console.error(err);
       setMessage("Network error while sending request.");
       setMessageType("error");
+    } finally {
+      setIsSubmittingRequest(false);
     }
   }
 
@@ -215,9 +233,10 @@ export default function KioskPage() {
               </div>
               <button
                 onClick={handleScan}
-                className="mt-4 w-full md:w-auto px-8 py-3 bg-[#0066CC] hover:bg-[#0052A3] text-white font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+                disabled={isScanning}
+                className="mt-4 w-full md:w-auto px-8 py-3 bg-[#0066CC] hover:bg-[#0052A3] disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
               >
-                Scan Item
+                {isScanning ? "Scanning..." : "Scan Item"}
               </button>
             </div>
 
@@ -285,7 +304,7 @@ export default function KioskPage() {
               <p className="text-sm text-gray-600 mb-1">Current Item</p>
               <p className="font-medium text-gray-900">{selectedItem.product?.name || 'Unknown Product'}</p>
               <p className="text-sm text-gray-600">
-                {selectedItem.product?.color} • Size N/A
+                {selectedItem.derivedColor || selectedItem.product?.color || 'Unknown'} • {selectedItem.derivedSize ? `Size ${selectedItem.derivedSize}` : 'Size N/A'}
               </p>
             </div>
             <div>
@@ -324,9 +343,10 @@ export default function KioskPage() {
               </button>
               <button
                 onClick={submitRequest}
-                className="flex-1 px-4 py-2.5 bg-[#0066CC] hover:bg-[#0052A3] text-white font-semibold rounded-lg transition-all duration-200"
+                disabled={isSubmittingRequest}
+                className="flex-1 px-4 py-2.5 bg-[#0066CC] hover:bg-[#0052A3] disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-200"
               >
-                Send Request
+                {isSubmittingRequest ? "Sending..." : "Send Request"}
               </button>
             </div>
           </div>
