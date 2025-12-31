@@ -1,4 +1,10 @@
 const API_BASE_URL = "https://993toyh3x5.execute-api.ca-central-1.amazonaws.com";
+const IMAGE_BASE_URL = "https://vestia-product-images.s3.ca-central-1.amazonaws.com/";
+
+// Helper to construct image URL from SKU
+function getImageUrl(sku: string): string {
+  return `${IMAGE_BASE_URL}${sku}.jpg`;
+}
 
 // Types based on AWS Lambda responses
 export interface RecommendationItem {
@@ -9,6 +15,7 @@ export interface RecommendationItem {
   color: string;
   price: number;
   score: number;
+  imageUrl?: string; // Dynamically constructed from productId
 }
 
 // Types for normalized event schema
@@ -44,6 +51,7 @@ export interface ProductData {
   gender: string;
   season?: string;
   usage?: string;
+  imageUrl?: string; // Dynamically constructed from SKU
 }
 
 // Combined type for UI rendering
@@ -87,19 +95,36 @@ export class VestiaAPI {
 
   // Product API
   static async getProduct(sku: string): Promise<ProductData> {
-    return this.request<ProductData>(`/product/${sku}`);
+    const product = await this.request<ProductData>(`/product/${sku}`);
+    return {
+      ...product,
+      imageUrl: getImageUrl(sku)
+    };
   }
   static async getRecommendations(
     productId: string,
-    targetCategory: "top" | "bottom" | "shoes" | "accessory"
+    targetCategory: "top" | "bottom" | "shoes" | "accessory",
+    gender?: string
   ): Promise<RecommendationItem[]> {
-    return this.request<RecommendationItem[]>("/recommend", {
+    const payload: any = {
+      productId,
+      targetCategory,
+    };
+    
+    if (gender) {
+      payload.gender = gender;
+    }
+    
+    const recommendations = await this.request<RecommendationItem[]>("/recommend", {
       method: "POST",
-      body: JSON.stringify({
-        productId,
-        targetCategory,
-      }),
+      body: JSON.stringify(payload),
     });
+    
+    // Attach imageUrl to each recommendation
+    return recommendations.map(rec => ({
+      ...rec,
+      imageUrl: getImageUrl(rec.productId)
+    }));
   }
 
   // Session API
@@ -212,6 +237,27 @@ export class VestiaAPI {
         isDelivered: scanItem.source === "staff"
       };
     });
+  }
+
+  // Helper to infer session gender from first scanned item
+  static async getSessionGender(sessionId: string): Promise<string | null> {
+    try {
+      const sessionData = await this.getSession(sessionId);
+      
+      // Find the first SCAN event (earliest timestamp)
+      const firstScan = sessionData.items
+        .filter(item => item.entityType === "SCAN")
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0];
+      
+      if (!firstScan) return null;
+      
+      // Get product metadata for the first scanned item
+      const product = await this.getProduct(firstScan.sku);
+      return product.gender || null;
+    } catch (err) {
+      console.error("Failed to infer session gender:", err);
+      return null;
+    }
   }
 
   // Helper to get all session events with product data (for admin/analytics)

@@ -108,8 +108,8 @@ export default function AdminPage() {
 
   useEffect(() => {
     loadRequests();
-    // Refresh every 3 seconds
-    const interval = setInterval(loadRequests, 3000);
+    // Refresh every 5 seconds (reduced from 3)
+    const interval = setInterval(loadRequests, 5000);
     return () => clearInterval(interval);
   }, []);
 

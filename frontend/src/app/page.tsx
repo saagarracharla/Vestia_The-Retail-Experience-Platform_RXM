@@ -27,6 +27,9 @@ export default function KioskPage() {
   const [isScanning, setIsScanning] = useState(false);
   const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
 
+  // Cache session gender to avoid repeated API calls
+  const [sessionGender, setSessionGender] = useState<string | null>(null);
+
   // Modal states
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
@@ -82,6 +85,12 @@ export default function KioskPage() {
       const itemsWithProducts = await VestiaAPI.getSessionWithProducts(currentSessionId);
       console.log("Session data received:", itemsWithProducts);
       setItems(itemsWithProducts || []);
+      
+      // Cache session gender on first scan
+      if (!sessionGender && itemsWithProducts && itemsWithProducts.length > 0) {
+        const gender = await VestiaAPI.getSessionGender(currentSessionId);
+        setSessionGender(gender);
+      }
       
       setMessage(`Item scanned successfully!`);
       setMessageType("success");

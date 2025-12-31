@@ -26,6 +26,9 @@ export default function SessionKioskPage() {
   const [isScanning, setIsScanning] = useState(false);
   const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
 
+  // Cache session gender to avoid repeated API calls
+  const [sessionGender, setSessionGender] = useState<string | null>(null);
+
   // Modal states
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
@@ -112,7 +115,7 @@ export default function SessionKioskPage() {
 
   // Mock system removed - notifications will work when backend implements /api/requests/status endpoint
 
-  // Poll for delivered items every 3 seconds
+  // Poll for delivered items every 5 seconds (reduced from 3)
   useEffect(() => {
     if (!sessionId) return;
     
@@ -127,7 +130,7 @@ export default function SessionKioskPage() {
       } catch (err) {
         console.error("Failed to poll for delivered items:", err);
       }
-    }, 3000);
+    }, 5000); // Increased from 3000ms to 5000ms
     
     return () => clearInterval(pollDelivered);
   }, [sessionId, items.length]);
@@ -137,6 +140,12 @@ export default function SessionKioskPage() {
       const loadedItems = await VestiaAPI.getSessionWithProducts(id);
       setItems(loadedItems);
       setSelectedMainIndex(loadedItems.length > 0 ? loadedItems.length - 1 : -1);
+      
+      // Cache session gender on first load
+      if (!sessionGender && loadedItems.length > 0) {
+        const gender = await VestiaAPI.getSessionGender(id);
+        setSessionGender(gender);
+      }
     } catch (err) {
       console.error("Failed to load session:", err);
     }
@@ -261,31 +270,10 @@ export default function SessionKioskPage() {
 
   // Map frontend SKU to backend productId
   function getProductIdForSku(sku: string): string {
-    const skuMap: { [key: string]: string } = {
-      "111": "119704139_1", // T-shirt
-      "222": "120556789_1", // Shorts
-      "333": "121445678_1", // Sneakers
-      "444": "122334455_1"  // Jacket
-    };
-    return skuMap[sku] || sku;
+    // Use SKU directly as productId since ProductCatalog uses SKU as productId
+    return sku;
   }
 
-  // Get image URL for recommendation items
-  function getImageUrlForRecommendation(productId: string): string {
-    // Map backend catalog productIds to frontend images
-    const imageMap: { [key: string]: string } = {
-      "119704139_1": "/images/items/Classic Blue Slim-Fit Oxford Shirt.jpg",
-      "119704139_2": "/images/items/Navy Blue Crew Neck T-Shirt h&m.jpeg",
-      "120556789_1": "/images/items/Slim-Fit Khaki Chinos levis.jpeg",
-      "120556789_2": "/images/items/Black Skinny Jeans levis.jpeg",
-      "120556789_3": "/images/items/Grey Dress Pants zara.jpg",
-      "121445678_1": "/images/items/White Leather Sneakers Nike.jpeg",
-      "121445678_2": "/images/items/Black Running Shoes adidas.jpg",
-      "121445678_3": "/images/items/Brown Leather Loafers clarks.jpeg",
-      "122334455_1": "/images/items/Navy Blazer zara.jpg",
-    };
-    return imageMap[productId] || "/images/items/tshirt.png"; // Default fallback
-  }
 
   // Fetch recommendations from new AWS API
   async function fetchRecommendations(itemSku: string, category: CategoryFilter = "all") {
@@ -294,15 +282,17 @@ export default function SessionKioskPage() {
     setLoadingRecommendations(true);
     try {
       const productId = getProductIdForSku(itemSku);
-      const recommendations = await VestiaAPI.getRecommendations(productId, category);
       
-      // Add image URLs to recommendations
-      const recommendationsWithImages = recommendations.map(rec => ({
-        ...rec,
-        image: getImageUrlForRecommendation(rec.productId)
-      }));
+      // Use cached session gender or fetch if not available
+      let gender = sessionGender;
+      if (!gender && sessionId) {
+        gender = await VestiaAPI.getSessionGender(sessionId);
+        setSessionGender(gender);
+      }
       
-      setRecommendations(recommendationsWithImages);
+      const recommendations = await VestiaAPI.getRecommendations(productId, category, gender || undefined);
+      
+      setRecommendations(recommendations);
     } catch (err) {
       console.error("Error fetching recommendations:", err);
       setRecommendations([]);
@@ -408,7 +398,19 @@ export default function SessionKioskPage() {
                   <div className="bg-[#FDF7EF] rounded-2xl p-8 border border-[#E5D5C8]">
                     <div className="flex gap-8">
                       <div className="w-40 h-56 bg-[#E5D5C8] rounded-xl overflow-hidden">
-                        <div className="w-full h-full flex items-center justify-center">
+                        {mainItem.product?.imageUrl ? (
+                          <img
+                            src={mainItem.product.imageUrl}
+                            alt={mainItem.product.name || 'Product'}
+                            loading="lazy"
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                              e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                            }}
+                          />
+                        ) : null}
+                        <div className={`w-full h-full flex items-center justify-center ${mainItem.product?.imageUrl ? 'hidden' : ''}`}>
                           <span className="text-[#3B2A21] text-lg">Image</span>
                         </div>
                       </div>
@@ -480,9 +482,21 @@ export default function SessionKioskPage() {
                           >
                             <div className="flex gap-3 h-full">
                               <div className="w-20 h-24 bg-[#E5D5C8] rounded-lg overflow-hidden flex-shrink-0">
-                                  <div className="w-full h-full flex items-center justify-center">
-                                    <span className="text-[#3B2A21] text-sm">Img</span>
-                                  </div>
+                                {item.product?.imageUrl ? (
+                                  <img
+                                    src={item.product.imageUrl}
+                                    alt={item.product.name || 'Product'}
+                                    loading="lazy"
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = 'none';
+                                      e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                    }}
+                                  />
+                                ) : null}
+                                <div className={`w-full h-full flex items-center justify-center ${item.product?.imageUrl ? 'hidden' : ''}`}>
+                                  <span className="text-[#3B2A21] text-sm">Img</span>
+                                </div>
                               </div>
                               <div className="flex-1 min-w-0 flex flex-col justify-between">
                                 <div>
@@ -553,23 +567,25 @@ export default function SessionKioskPage() {
             ) : (
               <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-4 overflow-y-auto">
                 {recommendations.slice(0, 4).map((rec) => {
-                  const imageUrl = getImageUrlForRecommendation(rec.productId);
-                  
                   return (
                     <div key={rec.productId} className="bg-white rounded-xl p-4 border border-[#E5D5C8] flex flex-col">
                       <div className="flex gap-3 flex-1">
                         <div className="w-20 h-20 bg-[#E5D5C8] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
-                          {imageUrl ? (
-                            <Image
-                              src={imageUrl}
+                          {rec.imageUrl ? (
+                            <img
+                              src={rec.imageUrl}
                               alt={rec.name}
-                              width={80}
-                              height={80}
-                              className="w-full h-full object-contain"
+                              loading="lazy"
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                                e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                              }}
                             />
-                          ) : (
-                            <span className="text-[#3B2A21] text-xs">Img</span>
-                          )}
+                          ) : null}
+                          <div className={`w-full h-full flex items-center justify-center ${rec.imageUrl ? 'hidden' : ''}`}>
+                            <span className="text-[#3B2A21] text-sm">IMG</span>
+                          </div>
                         </div>
                         <div className="flex-1 min-w-0 flex flex-col">
                           <h4 className="font-medium text-[#3B2A21] text-sm mb-2 truncate">{rec.name}</h4>
