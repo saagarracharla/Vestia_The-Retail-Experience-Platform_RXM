@@ -1,17 +1,20 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { VestiaAPI } from "@/lib/api";
 
 type RequestItem = {
   id: number;
   sessionId: string;
   sku: string;
+  kioskId?: string;
   requestedSize: string | null;
   requestedColor: string | null;
   status: string;
+  requestId?: string;
+  name?: string;
+  price?: number;
 };
-
-const BACKEND_URL = "http://localhost:4000";
 
 export default function AdminPage() {
   const [requests, setRequests] = useState<RequestItem[]>([]);
@@ -22,12 +25,37 @@ export default function AdminPage() {
   async function loadRequests() {
     setLoading(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/requests`);
-      if (!res.ok) {
-        throw new Error("Failed to load requests");
+      // Call the real AWS store requests endpoint
+      const response = await fetch("https://993toyh3x5.execute-api.ca-central-1.amazonaws.com/store/STORE-001/request", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
-      const data = await res.json();
-      setRequests(data || []);
+
+      const data = await response.json();
+      
+      // Transform AWS response to match admin page format
+      const transformedRequests = data.requests.map((req: any, index: number) => ({
+        id: index + 1,
+        sessionId: req.sessionId,
+        sku: req.sku,
+        kioskId: req.kioskId,
+        requestedSize: req.requestedSize,
+        requestedColor: req.requestedColor,
+        status: req.status,
+        requestId: req.requestId,
+        name: req.name,
+        price: req.price
+      }));
+
+      setRequests(transformedRequests);
+      setMessage(data.requests.length > 0 ? `Loaded ${data.requests.length} requests` : "No pending requests");
+      setMessageType("success");
     } catch (err) {
       console.error(err);
       setMessage("Failed to load requests.");
@@ -37,46 +65,51 @@ export default function AdminPage() {
     }
   }
 
-  async function updateRequestStatus(id: number, status: string) {
+  async function updateRequestStatus(id: number, status: string, action?: string) {
     setMessage("");
     try {
-      const res = await fetch(`${BACKEND_URL}/api/request/${id}/status`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json();
-        setMessage(errorData.error || "Failed to update request.");
-        setMessageType("error");
-        return;
+      const request = requests.find(r => r.id === id);
+      if (!request || !request.requestId) {
+        throw new Error("Request not found");
       }
 
-      const updatedRequest = await res.json();
-      setMessage(`Request ${id} marked as ${status}.`);
+      const body: any = {};
+      if (status) body.status = status;
+      if (action) body.action = action;
+
+      const response = await fetch(`https://993toyh3x5.execute-api.ca-central-1.amazonaws.com/request/${request.requestId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to update request");
+      }
+
+      const result = await response.json();
+      setMessage(`Request ${request.requestId} updated to ${result.status}${result.autoScan ? ' (item delivered to kiosk)' : ''}`);
       setMessageType("success");
-      
-      // Trigger kiosk notification by broadcasting to localStorage
-      const notificationData = {
-        requestId: id,
-        status: status,
-        timestamp: Date.now()
-      };
-      localStorage.setItem('kioskNotification', JSON.stringify(notificationData));
       
       await loadRequests();
     } catch (err) {
       console.error(err);
-      setMessage("Network error while updating request.");
+      setMessage(`Failed to update request: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setMessageType("error");
     }
   }
 
+  const handleCancel = (id: number) => updateRequestStatus(id, "CANCELLED");
+  const handlePickup = (id: number) => updateRequestStatus(id, "CLAIMED");
+  const handleDeliver = (id: number) => updateRequestStatus(id, "", "delivered");
+
   useEffect(() => {
     loadRequests();
-    // Refresh every 3 seconds
-    const interval = setInterval(loadRequests, 3000);
+    // Refresh every 5 seconds (reduced from 3)
+    const interval = setInterval(loadRequests, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -164,7 +197,7 @@ export default function AdminPage() {
               <table className="w-full">
                 <thead className="bg-[#F1DDC0] text-[#5B3D1C] text-left uppercase text-xs tracking-[0.2em]">
                   <tr>
-                    {["ID", "Session ID", "SKU", "Requested Size", "Requested Colour", "Status", "Actions"].map(
+                    {["ID", "Session ID", "SKU", "Kiosk", "Size", "Color", "Status", "Actions"].map(
                       (heading) => (
                         <th key={heading} className="px-8 py-4 font-semibold">
                           {heading}
@@ -192,6 +225,11 @@ export default function AdminPage() {
                       <td className="px-8 py-5 text-[#4F2F14] font-semibold">
                         {r.sku}
                       </td>
+                      <td className="px-8 py-5">
+                        <span className="text-xs tracking-wide font-mono bg-[#E8F4FD] text-[#1E40AF] px-3 py-1 rounded-full">
+                          {r.kioskId || "Unknown"}
+                        </span>
+                      </td>
                       <td className="px-8 py-5 text-[#7A4F2B]">
                         {r.requestedSize || "—"}
                       </td>
@@ -208,30 +246,33 @@ export default function AdminPage() {
                         </span>
                       </td>
                       <td className="px-8 py-5">
-                        <div className="flex gap-2 items-center flex-nowrap">
-                          {r.status !== "Delivered" && r.status !== "Cancelled" && (
+                        <div className="flex gap-2 items-center flex-wrap">
+                          {r.status === "QUEUED" && (
+                            <>
+                              <button
+                                onClick={() => handleCancel(r.id)}
+                                className="px-3 py-1.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 hover:bg-red-200 transition"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={() => handlePickup(r.id)}
+                                className="px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 hover:bg-blue-200 transition"
+                              >
+                                Picked Up
+                              </button>
+                            </>
+                          )}
+                          {r.status === "CLAIMED" && (
                             <button
-                              onClick={() => updateRequestStatus(r.id, "Delivered")}
-                              className="px-4 py-2 rounded-full text-sm font-semibold bg-[#C7A070] text-[#3F250F] hover:bg-[#B88D57] transition whitespace-nowrap"
+                              onClick={() => handleDeliver(r.id)}
+                              className="px-3 py-1.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 hover:bg-green-200 transition"
                             >
-                              Mark Delivered
+                              Delivered
                             </button>
                           )}
-                          {r.status === "Queued" && (
-                            <button
-                              onClick={() => updateRequestStatus(r.id, "PickedUp")}
-                              className="px-4 py-2 rounded-full text-sm font-semibold bg-[#E2C291] text-[#3F250F] hover:bg-[#D5AF75] transition whitespace-nowrap"
-                            >
-                              Pick Up
-                            </button>
-                          )}
-                          {r.status !== "Cancelled" && r.status !== "Delivered" && (
-                            <button
-                              onClick={() => updateRequestStatus(r.id, "Cancelled")}
-                              className="px-4 py-2 rounded-full text-sm font-semibold bg-[#B86B4D] text-[#FFF7EB] hover:bg-[#A5553B] transition whitespace-nowrap"
-                            >
-                              Cancel
-                            </button>
+                          {(r.status === "DELIVERED" || r.status === "CANCELLED") && (
+                            <span className="text-xs text-gray-500">No actions</span>
                           )}
                         </div>
                       </td>

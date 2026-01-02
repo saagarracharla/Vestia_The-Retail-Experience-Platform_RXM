@@ -10,27 +10,25 @@ import {
   MixAndMatchPlaceholder,
 } from "@/components/FutureFeaturesPlaceholder";
 import { generateSessionId } from "@/utils/sessionId";
+import { VestiaAPI, ItemWithProduct } from "@/lib/api";
 
-type Item = {
-  sku: string;
-  name: string;
-  color: string;
-  size: string;
-};
-
-const BACKEND_URL = "http://localhost:4000";
+type Item = ItemWithProduct;
 
 export default function KioskPage() {
   const [hasStartedSession, setHasStartedSession] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
   const [sku, setSku] = useState("");
-  const [name, setName] = useState("");
-  const [color, setColor] = useState("");
-  const [size, setSize] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("success");
+
+  // Loading states
+  const [isScanning, setIsScanning] = useState(false);
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+
+  // Cache session gender to avoid repeated API calls
+  const [sessionGender, setSessionGender] = useState<string | null>(null);
 
   // Modal states
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -40,11 +38,6 @@ export default function KioskPage() {
   const [requestedColor, setRequestedColor] = useState("");
   const [feedbackRating, setFeedbackRating] = useState("5");
   const [feedbackComment, setFeedbackComment] = useState("");
-
-  // Always show welcome screen on page load
-  useEffect(() => {
-    setHasStartedSession(false);
-  }, []);
 
   function initializeSession() {
     if (!sessionId) {
@@ -57,34 +50,6 @@ export default function KioskPage() {
     }
   }
 
-  function handleStartSession() {
-    // Initialize session when user clicks "Start scanning now"
-    initializeSession();
-    // If sessionId wasn't set yet, generate it now
-    if (!sessionId) {
-      const newSessionId = generateSessionId();
-      const startTime = new Date();
-      setSessionId(newSessionId);
-      setSessionStartTime(startTime);
-      localStorage.setItem("sessionId", newSessionId);
-      localStorage.setItem("sessionStartTime", startTime.toISOString());
-    }
-    // Show the main kiosk UI
-    setHasStartedSession(true);
-  }
-
-  async function loadSession(id: string) {
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/session/${id}`);
-      if (res.ok) {
-        const data = await res.json();
-        setItems(data.items || []);
-      }
-    } catch (err) {
-      console.error("Failed to load session:", err);
-    }
-  }
-
   async function handleScan() {
     setMessage("");
     if (!sku) {
@@ -92,6 +57,9 @@ export default function KioskPage() {
       setMessageType("error");
       return;
     }
+
+    if (isScanning) return; // Prevent double-clicks
+    setIsScanning(true);
 
     // Initialize session on first scan
     if (!sessionId) {
@@ -108,37 +76,31 @@ export default function KioskPage() {
     }
 
     try {
-      const res = await fetch(`${BACKEND_URL}/api/session/scan`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: currentSessionId,
-          sku,
-          name,
-          color,
-          size,
-        }),
-      });
+      // Scan item with only SKU
+      console.log("Scanning SKU:", sku, "for session:", currentSessionId);
+      await VestiaAPI.scanItem(currentSessionId, sku, "KIOSK-001");
 
-      if (!res.ok) {
-        const errorData = await res.json();
-        setMessage(errorData.error || "Failed to scan item.");
-        setMessageType("error");
-        return;
+      // Fetch updated session data with product metadata
+      console.log("Fetching session data...");
+      const itemsWithProducts = await VestiaAPI.getSessionWithProducts(currentSessionId);
+      console.log("Session data received:", itemsWithProducts);
+      setItems(itemsWithProducts || []);
+      
+      // Cache session gender on first scan
+      if (!sessionGender && itemsWithProducts && itemsWithProducts.length > 0) {
+        const gender = await VestiaAPI.getSessionGender(currentSessionId);
+        setSessionGender(gender);
       }
-
-      const data = await res.json();
-      setItems(data.items || []);
-      setMessage("Item scanned successfully!");
+      
+      setMessage(`Item scanned successfully!`);
       setMessageType("success");
       setSku("");
-      setName("");
-      setColor("");
-      setSize("");
     } catch (err) {
-      console.error(err);
-      setMessage("Network error while scanning item.");
+      console.error("Scan error:", err);
+      setMessage(`Failed to scan item: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setMessageType("error");
+    } finally {
+      setIsScanning(false);
     }
   }
 
@@ -152,27 +114,22 @@ export default function KioskPage() {
   async function submitRequest() {
     if (!selectedItem || !sessionId) return;
 
+    if (isSubmittingRequest) return; // Prevent double-clicks
+    setIsSubmittingRequest(true);
+
     setMessage("");
     try {
-      const res = await fetch(`${BACKEND_URL}/api/request`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          sku: selectedItem.sku,
-          requestedSize: requestedSize || null,
-          requestedColor: requestedColor || null,
-        }),
+      await VestiaAPI.createRequest({
+        sessionId,
+        sku: selectedItem.sku,
+        requestedSize: requestedSize || undefined,
+        requestedColor: requestedColor || undefined,
       });
 
-      if (!res.ok) {
-        const errorData = await res.json();
-        setMessage(errorData.error || "Failed to send request.");
-        setMessageType("error");
-        return;
-      }
+      // Refresh session to show any updates
+      const itemsWithProducts = await VestiaAPI.getSessionWithProducts(sessionId);
+      setItems(itemsWithProducts || []);
 
-      await res.json();
       setMessage("Request sent successfully!");
       setMessageType("success");
       setIsRequestModalOpen(false);
@@ -183,6 +140,8 @@ export default function KioskPage() {
       console.error(err);
       setMessage("Network error while sending request.");
       setMessageType("error");
+    } finally {
+      setIsSubmittingRequest(false);
     }
   }
 
@@ -198,24 +157,13 @@ export default function KioskPage() {
 
     setMessage("");
     try {
-      const res = await fetch(`${BACKEND_URL}/api/feedback`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          rating: Number(feedbackRating),
-          comment: feedbackComment,
-        }),
+      // TODO: Implement feedback endpoint in AWS
+      console.log("Feedback submitted:", {
+        sessionId,
+        rating: Number(feedbackRating),
+        comment: feedbackComment,
       });
 
-      if (!res.ok) {
-        const errorData = await res.json();
-        setMessage(errorData.error || "Failed to submit feedback.");
-        setMessageType("error");
-        return;
-      }
-
-      await res.json();
       setMessage("Thank you for your feedback!");
       setMessageType("success");
       setIsFeedbackModalOpen(false);
@@ -291,48 +239,13 @@ export default function KioskPage() {
                     className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-all"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Name
-                  </label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Blue Slim-Fit Shirt"
-                    className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-all"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Color
-                  </label>
-                  <input
-                    type="text"
-                    value={color}
-                    onChange={(e) => setColor(e.target.value)}
-                    placeholder="e.g. Blue"
-                    className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-all"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Size
-                  </label>
-                  <input
-                    type="text"
-                    value={size}
-                    onChange={(e) => setSize(e.target.value)}
-                    placeholder="e.g. M"
-                    className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-all"
-                  />
-                </div>
               </div>
               <button
                 onClick={handleScan}
-                className="mt-4 w-full md:w-auto px-8 py-3 bg-[#0066CC] hover:bg-[#0052A3] text-white font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+                disabled={isScanning}
+                className="mt-4 w-full md:w-auto px-8 py-3 bg-[#0066CC] hover:bg-[#0052A3] disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
               >
-                Scan Item
+                {isScanning ? "Scanning..." : "Scan Item"}
               </button>
             </div>
 
@@ -398,9 +311,9 @@ export default function KioskPage() {
           <div className="space-y-4">
             <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
               <p className="text-sm text-gray-600 mb-1">Current Item</p>
-              <p className="font-medium text-gray-900">{selectedItem.name}</p>
+              <p className="font-medium text-gray-900">{selectedItem.product?.name || 'Unknown Product'}</p>
               <p className="text-sm text-gray-600">
-                {selectedItem.color} • Size {selectedItem.size}
+                {selectedItem.derivedColor || selectedItem.product?.color || 'Unknown'} • {selectedItem.derivedSize ? `Size ${selectedItem.derivedSize}` : 'Size N/A'}
               </p>
             </div>
             <div>
@@ -439,9 +352,10 @@ export default function KioskPage() {
               </button>
               <button
                 onClick={submitRequest}
-                className="flex-1 px-4 py-2.5 bg-[#0066CC] hover:bg-[#0052A3] text-white font-semibold rounded-lg transition-all duration-200"
+                disabled={isSubmittingRequest}
+                className="flex-1 px-4 py-2.5 bg-[#0066CC] hover:bg-[#0052A3] disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-200"
               >
-                Send Request
+                {isSubmittingRequest ? "Sending..." : "Send Request"}
               </button>
             </div>
           </div>
