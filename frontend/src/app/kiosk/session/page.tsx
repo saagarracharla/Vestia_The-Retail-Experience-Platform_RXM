@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Modal from "@/components/Modal";
 import SessionTimer from "@/components/SessionTimer";
 import Notification from "@/components/Notification";
+import EndSessionModal, { SessionFeedback } from "@/components/EndSessionModal";
+import LoadingSpinner from "@/components/LoadingSpinner";
 import { VestiaAPI, RecommendationItem, ItemWithProduct } from "@/lib/api";
 
 type Item = ItemWithProduct;
@@ -26,12 +28,18 @@ export default function SessionKioskPage() {
   const [isScanning, setIsScanning] = useState(false);
   const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
 
+  // Request deduplication - track submitted requests to prevent duplicates
+  const submittedRequestsRef = useRef<Set<string>>(new Set());
+  const scanDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const requestInProgressRef = useRef(false);
+
   // Cache session gender to avoid repeated API calls
   const [sessionGender, setSessionGender] = useState<string | null>(null);
 
   // Modal states
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+  const [isEndSessionModalOpen, setIsEndSessionModalOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [requestedSize, setRequestedSize] = useState("");
   const [requestedColor, setRequestedColor] = useState("");
@@ -54,6 +62,15 @@ export default function SessionKioskPage() {
   const [recommendations, setRecommendations] = useState<RecommendationItem[]>([]);
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
   const [activeCategory, setActiveCategory] = useState<CategoryFilter>("all");
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (scanDebounceTimerRef.current) {
+        clearTimeout(scanDebounceTimerRef.current);
+      }
+    };
+  }, []);
 
   // Restore session or redirect to welcome
   useEffect(() => {
@@ -153,23 +170,40 @@ export default function SessionKioskPage() {
 
   async function handleScan() {
     setMessage("");
-    if (!sku) {
+    if (!sku || !sku.trim()) {
       setMessage("SKU is required.");
       setMessageType("error");
       return;
     }
 
-    if (isScanning) return; // Prevent double-clicks
+    // Prevent multiple simultaneous scans
+    if (isScanning || requestInProgressRef.current) {
+      return;
+    }
+
+    const skuToScan = sku.trim();
+    const currentSessionId = sessionId || "demo_session";
+
+    // Check if this SKU was just scanned (prevent duplicate scans)
+    const recentScanKey = `${currentSessionId}-${skuToScan}`;
+    if (submittedRequestsRef.current.has(recentScanKey)) {
+      setMessage("This item was just scanned. Please wait a moment.");
+      setMessageType("error");
+      return;
+    }
+
     setIsScanning(true);
+    requestInProgressRef.current = true;
+    submittedRequestsRef.current.add(recentScanKey);
 
     try {
       // Send only SKU to backend
-      console.log("Scanning SKU:", sku, "for session:", sessionId || "demo_session");
-      await VestiaAPI.scanItem(sessionId || "demo_session", sku, "KIOSK-001");
+      console.log("Scanning SKU:", skuToScan, "for session:", currentSessionId);
+      await VestiaAPI.scanItem(currentSessionId, skuToScan, "KIOSK-001");
       
       // Fetch updated session data with product metadata
       console.log("Fetching session data...");
-      const itemsWithProducts = await VestiaAPI.getSessionWithProducts(sessionId || "demo_session");
+      const itemsWithProducts = await VestiaAPI.getSessionWithProducts(currentSessionId);
       console.log("Session data received:", itemsWithProducts);
       setItems(itemsWithProducts || []);
       
@@ -179,12 +213,20 @@ export default function SessionKioskPage() {
       setMessage("Item scanned successfully!");
       setMessageType("success");
       setSku("");
+      
+      // Remove from deduplication set after 2 seconds (allow re-scanning after delay)
+      setTimeout(() => {
+        submittedRequestsRef.current.delete(recentScanKey);
+      }, 2000);
     } catch (err) {
       console.error("Failed to scan item:", err);
       setMessage(`Failed to scan item: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setMessageType("error");
+      // Remove from deduplication set on error so user can retry
+      submittedRequestsRef.current.delete(recentScanKey);
     } finally {
       setIsScanning(false);
+      requestInProgressRef.current = false;
     }
   }
 
@@ -198,40 +240,80 @@ export default function SessionKioskPage() {
   async function submitRequest() {
     if (!selectedItem) return;
 
+    // CRITICAL FIX: Check loading state at the start to prevent duplicate submissions
+    if (isSubmittingRequest || requestInProgressRef.current) {
+      console.log("Request already in progress, ignoring duplicate click");
+      return;
+    }
+
+    // Create unique request key for deduplication
+    const requestKey = `${sessionId || "demo_session"}-${selectedItem.sku}-${requestedSize}-${requestedColor}-${Date.now()}`;
+    
+    // Check if this exact request was just submitted
+    if (submittedRequestsRef.current.has(requestKey)) {
+      console.log("Duplicate request detected, ignoring");
+      return;
+    }
+
+    setIsSubmittingRequest(true);
+    requestInProgressRef.current = true;
+    submittedRequestsRef.current.add(requestKey);
+
+    // Store values before async operations
+    const currentSessionId = sessionId || "demo_session";
+    const currentSku = selectedItem.sku;
+    const currentSize = requestedSize;
+    const currentColor = requestedColor;
+    const currentItemName = selectedItem.product?.name || 'Unknown Product';
+
     setMessage("");
+
     try {
       const data = await VestiaAPI.createRequest({
-        sessionId: sessionId || "demo_session",
-        sku: selectedItem.sku,
-        requestedSize,
-        requestedColor,
+        sessionId: currentSessionId,
+        sku: currentSku,
+        requestedSize: currentSize || undefined,
+        requestedColor: currentColor || undefined,
       });
 
-      // Refresh session to show any updates
-      const itemsWithProducts = await VestiaAPI.getSessionWithProducts(sessionId || "demo_session");
-      setItems(itemsWithProducts);
-      setSelectedMainIndex((itemsWithProducts || []).length - 1);
-
-      setMessage("Request sent successfully!");
-      setMessageType("success");
+      // Close modal immediately for better UX (optimistic update)
       setIsRequestModalOpen(false);
       setSelectedItem(null);
       setRequestedSize("");
       setRequestedColor("");
-      
+
       // Add request details to pending requests for status tracking
       if (data.requestId) {
         setPendingRequests(prev => [...prev, {
           id: data.requestId.toString(),
-          itemName: selectedItem.product?.name || 'Unknown Product',
-          size: requestedSize || 'Unknown',
-          color: requestedColor || "Default"
+          itemName: currentItemName,
+          size: currentSize || 'Unknown',
+          color: currentColor || "Default"
         }]);
       }
+
+      // Show success message
+      setMessage("Request sent successfully!");
+      setMessageType("success");
+
+      // Note: Removed unnecessary session refresh - it's already polled every 5 seconds
+      // This reduces API calls and improves performance
+
+      // Remove from deduplication set after 3 seconds
+      setTimeout(() => {
+        submittedRequestsRef.current.delete(requestKey);
+      }, 3000);
     } catch (err) {
-      console.error(err);
+      console.error("Request submission error:", err);
       setMessage("Network error while sending request.");
       setMessageType("error");
+      // Remove from deduplication set on error so user can retry
+      submittedRequestsRef.current.delete(requestKey);
+      // Re-open modal on error so user can try again
+      setIsRequestModalOpen(true);
+    } finally {
+      setIsSubmittingRequest(false);
+      requestInProgressRef.current = false;
     }
   }
 
@@ -265,6 +347,46 @@ export default function SessionKioskPage() {
       console.error(err);
       setMessage("Network error while submitting feedback.");
       setMessageType("error");
+    }
+  }
+
+  async function handleEndSession(feedback: SessionFeedback) {
+    if (!sessionId) return;
+
+    try {
+      // TODO: Implement end session endpoint in AWS
+      // This should:
+      // 1. Save feedback to DynamoDB
+      // 2. Update session end time
+      // 3. Mark items as purchased/not purchased
+      // 4. Update analytics
+      
+      console.log("Ending session with feedback:", {
+        sessionId,
+        feedback,
+      });
+
+      // Clear session data
+      localStorage.removeItem("sessionId");
+      localStorage.removeItem("sessionStartTime");
+      
+      // Show success notification
+      setNotification({
+        message: "Thank you for your feedback! Your session has ended.",
+        type: "success"
+      });
+
+      // Redirect to welcome screen after a delay
+      setTimeout(() => {
+        router.push("/");
+      }, 2000);
+    } catch (err) {
+      console.error("Failed to end session:", err);
+      setNotification({
+        message: "Failed to submit feedback. Please try again.",
+        type: "error"
+      });
+      throw err; // Re-throw to let modal handle it
     }
   }
 
@@ -329,6 +451,66 @@ export default function SessionKioskPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMainIndex, items.length]);
+
+  // Keyboard shortcuts for accessibility
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      // Don't trigger shortcuts when typing in inputs
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+
+      // Ctrl/Cmd + Enter: Scan item (if SKU is entered)
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && sku) {
+        e.preventDefault();
+        handleScan();
+      }
+
+      // Ctrl/Cmd + R: Request size/color for selected item
+      if ((e.ctrlKey || e.metaKey) && e.key === "r" && mainItem) {
+        e.preventDefault();
+        handleRequestSize(mainItem);
+      }
+
+      // Ctrl/Cmd + E: End session
+      if ((e.ctrlKey || e.metaKey) && e.key === "e") {
+        e.preventDefault();
+        setIsEndSessionModalOpen(true);
+      }
+
+      // Arrow keys: Navigate between items (when not in input)
+      if (e.key === "ArrowLeft" && items.length > 0) {
+        e.preventDefault();
+        setSelectedMainIndex((prev) => Math.max(0, prev - 1));
+      }
+      if (e.key === "ArrowRight" && items.length > 0) {
+        e.preventDefault();
+        setSelectedMainIndex((prev) => Math.min(items.length - 1, prev + 1));
+      }
+
+      // Escape: Close modals
+      if (e.key === "Escape") {
+        if (isRequestModalOpen) {
+          setIsRequestModalOpen(false);
+          setSelectedItem(null);
+        }
+        if (isFeedbackModalOpen) {
+          setIsFeedbackModalOpen(false);
+          setSelectedItem(null);
+        }
+        if (isEndSessionModalOpen) {
+          setIsEndSessionModalOpen(false);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyPress);
+    return () => window.removeEventListener("keydown", handleKeyPress);
+  }, [sku, mainItem, items.length, isRequestModalOpen, isFeedbackModalOpen, isEndSessionModalOpen]);
   const previousItems = items.length > 1 
     ? items.filter((_, index) => index !== selectedMainIndex).reverse()
     : [];
@@ -339,17 +521,37 @@ export default function SessionKioskPage() {
 
   return (
     <div className="min-h-screen bg-[#F5E9DA]">
-      {/* Top Bar */}
+      {/* Customer-Facing Top Bar */}
       <div className="bg-[#FDF7EF] border-b border-[#E5D5C8] px-8 py-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-[#3B2A21]">Vestia</h1>
+          <div className="flex items-center gap-4">
+            <div className="relative w-12 h-12">
+              <Image
+                src="/images/Logo.png"
+                alt="Vestia Logo"
+                fill
+                className="object-contain"
+                priority
+              />
+            </div>
+            <h1 className="text-2xl font-bold text-[#3B2A21]">Vestia</h1>
+          </div>
           <div className="flex items-center gap-6 text-[#3B2A21]">
-            <a href="/" className="font-medium hover:underline">Kiosk</a>
-            <a href="/admin" className="font-medium hover:underline">Requests</a>
-            <a href="/analytics" className="font-medium hover:underline">Analytics</a>
-            <span className="font-medium">Room 7</span>
-            {sessionStartTime && <SessionTimer startTime={sessionStartTime} />}
-            <button className="font-medium hover:underline">Log In</button>
+            <div className="flex items-center gap-2 px-4 py-2 bg-white/60 rounded-full border border-[#E5D5C8]">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+              <span className="font-semibold text-sm">Room 7</span>
+            </div>
+            {sessionStartTime && (
+              <div className="px-4 py-2 bg-white/60 rounded-full border border-[#E5D5C8]">
+                <SessionTimer startTime={sessionStartTime} />
+              </div>
+            )}
+            <button 
+              onClick={() => setIsEndSessionModalOpen(true)}
+              className="px-5 py-2.5 bg-red-100 hover:bg-red-200 text-red-700 font-semibold rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-red-300 shadow-sm hover:shadow-md"
+            >
+              End Session
+            </button>
           </div>
         </div>
       </div>
@@ -365,15 +567,53 @@ export default function SessionKioskPage() {
               <input
                 type="text"
                 value={sku}
-                onChange={(e) => setSku(e.target.value)}
+                onChange={(e) => {
+                  const newSku = e.target.value;
+                  setSku(newSku);
+                  
+                  // Clear any existing debounce timer
+                  if (scanDebounceTimerRef.current) {
+                    clearTimeout(scanDebounceTimerRef.current);
+                  }
+                  
+                  // Optional: Auto-scan after user stops typing for 1 second (if SKU looks complete)
+                  // This is disabled by default - uncomment if you want auto-scan
+                  // scanDebounceTimerRef.current = setTimeout(() => {
+                  //   if (newSku.trim().length >= 3 && !isScanning) {
+                  //     handleScan();
+                  //   }
+                  // }, 1000);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && sku.trim() && !isScanning && !requestInProgressRef.current) {
+                    e.preventDefault();
+                    // Clear debounce timer if user presses Enter
+                    if (scanDebounceTimerRef.current) {
+                      clearTimeout(scanDebounceTimerRef.current);
+                      scanDebounceTimerRef.current = null;
+                    }
+                    handleScan();
+                  }
+                }}
                 placeholder="Enter SKU (111, 222, 333, or 444)"
-                className="flex-1 bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm"
+                className="flex-1 bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
+                autoFocus
+                disabled={isScanning}
+                aria-label="SKU input field. Press Enter to scan item."
               />
               <button
                 onClick={handleScan}
-                className="px-6 py-2 bg-[#4A3A2E] hover:bg-[#3B2A21] text-[#FDF7EF] font-medium rounded-md transition-all text-sm"
+                disabled={isScanning || !sku.trim()}
+                className="px-6 py-2 bg-[#4A3A2E] hover:bg-[#3B2A21] disabled:bg-gray-400 disabled:cursor-not-allowed text-[#FDF7EF] font-medium rounded-md transition-all text-sm flex items-center gap-2"
               >
-                Scan Item
+                {isScanning ? (
+                  <>
+                    <LoadingSpinner size="sm" />
+                    <span>Scanning...</span>
+                  </>
+                ) : (
+                  "Scan Item"
+                )}
               </button>
             </div>
           </div>
@@ -636,8 +876,10 @@ export default function SessionKioskPage() {
       <Modal
         isOpen={isRequestModalOpen}
         onClose={() => {
-          setIsRequestModalOpen(false);
-          setSelectedItem(null);
+          if (!isSubmittingRequest) {
+            setIsRequestModalOpen(false);
+            setSelectedItem(null);
+          }
         }}
         title="Request Different Size or Color"
       >
@@ -690,18 +932,29 @@ export default function SessionKioskPage() {
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => {
-                  setIsRequestModalOpen(false);
-                  setSelectedItem(null);
+                  if (!isSubmittingRequest) {
+                    setIsRequestModalOpen(false);
+                    setSelectedItem(null);
+                  }
                 }}
-                className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-all duration-200"
+                disabled={isSubmittingRequest}
+                className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed text-gray-700 font-medium rounded-lg transition-all duration-200"
               >
                 Cancel
               </button>
               <button
                 onClick={submitRequest}
-                className="flex-1 px-4 py-2.5 bg-[#0066CC] hover:bg-[#0052A3] text-white font-semibold rounded-lg transition-all duration-200"
+                disabled={isSubmittingRequest}
+                className="flex-1 px-4 py-2.5 bg-[#0066CC] hover:bg-[#0052A3] disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-2"
               >
-                Send Request
+                {isSubmittingRequest ? (
+                  <>
+                    <LoadingSpinner size="sm" />
+                    <span>Sending...</span>
+                  </>
+                ) : (
+                  "Send Request"
+                )}
               </button>
             </div>
           </div>
@@ -764,6 +1017,21 @@ export default function SessionKioskPage() {
           </div>
         </div>
       </Modal>
+
+      {/* End Session Modal */}
+      <EndSessionModal
+        isOpen={isEndSessionModalOpen}
+        onClose={() => setIsEndSessionModalOpen(false)}
+        onEndSession={handleEndSession}
+        items={items.map(item => ({
+          sku: item.sku,
+          product: item.product ? {
+            name: item.product.name,
+            productId: item.product.productId,
+          } : undefined,
+        }))}
+        sessionId={sessionId || ""}
+      />
 
       {/* Notification */}
       {notification && (
