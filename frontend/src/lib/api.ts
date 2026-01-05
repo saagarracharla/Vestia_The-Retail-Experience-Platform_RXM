@@ -1,5 +1,5 @@
 const API_BASE_URL = "https://993toyh3x5.execute-api.ca-central-1.amazonaws.com";
-const IMAGE_BASE_URL = "https://vestia-product-images.s3.ca-central-1.amazonaws.com/small/";
+const IMAGE_BASE_URL = "https://vestia-product-images.s3.ca-central-1.amazonaws.com/full/";
 
 // Helper to construct image URL from SKU
 function getImageUrl(sku: string): string {
