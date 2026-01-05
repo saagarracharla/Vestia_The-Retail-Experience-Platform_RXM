@@ -781,8 +781,11 @@ export default function SessionKioskPage() {
                         : "bg-white text-[#3B2A21] border border-[#E5D5C8] hover:bg-[#F5E9DA]"
                     }`}
                   >
-                    {category.charAt(0).toUpperCase() + category.slice(1)}
-                    {category === "accessory" ? "ies" : "s"}
+                    {category === "accessory" 
+                      ? "Accessories" 
+                      : category === "shoes"
+                      ? "Shoes"
+                      : category.charAt(0).toUpperCase() + category.slice(1) + "s"}
                   </button>
                 ))}
               </div>
