@@ -2,10 +2,6 @@
 
 ## Complete AWS Infrastructure
 
-Yes, I can see the entire AWS architecture! Here's the complete breakdown:
-
----
-
 ## 🌐 API Gateway
 
 **Base URL**: `https://993toyh3x5.execute-api.ca-central-1.amazonaws.com`  
