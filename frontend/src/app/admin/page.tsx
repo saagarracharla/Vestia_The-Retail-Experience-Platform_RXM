@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { VestiaAPI } from "@/lib/api";
+import LoadingSpinner from "@/components/LoadingSpinner";
 
 type RequestItem = {
   id: number;
@@ -21,6 +22,8 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("success");
+  const [updatingRequestId, setUpdatingRequestId] = useState<string | null>(null);
+  const requestUpdateInProgressRef = useRef<Set<string>>(new Set());
 
   async function loadRequests() {
     setLoading(true);
@@ -66,13 +69,25 @@ export default function AdminPage() {
   }
 
   async function updateRequestStatus(id: number, status: string, action?: string) {
-    setMessage("");
-    try {
-      const request = requests.find(r => r.id === id);
-      if (!request || !request.requestId) {
-        throw new Error("Request not found");
-      }
+    const request = requests.find(r => r.id === id);
+    if (!request || !request.requestId) {
+      setMessage("Request not found");
+      setMessageType("error");
+      return;
+    }
 
+    // Prevent duplicate updates
+    const updateKey = `${request.requestId}-${status}-${action || ''}`;
+    if (requestUpdateInProgressRef.current.has(updateKey)) {
+      console.log("Request update already in progress, ignoring duplicate click");
+      return;
+    }
+
+    requestUpdateInProgressRef.current.add(updateKey);
+    setUpdatingRequestId(request.requestId);
+    setMessage("");
+
+    try {
       const body: any = {};
       if (status) body.status = status;
       if (action) body.action = action;
@@ -94,11 +109,20 @@ export default function AdminPage() {
       setMessage(`Request ${request.requestId} updated to ${result.status}${result.autoScan ? ' (item delivered to kiosk)' : ''}`);
       setMessageType("success");
       
-      await loadRequests();
+      // Refresh requests after a short delay to see the update
+      setTimeout(() => {
+        loadRequests();
+      }, 500);
     } catch (err) {
       console.error(err);
       setMessage(`Failed to update request: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setMessageType("error");
+    } finally {
+      // Remove from in-progress set after 2 seconds
+      setTimeout(() => {
+        requestUpdateInProgressRef.current.delete(updateKey);
+        setUpdatingRequestId(null);
+      }, 2000);
     }
   }
 
@@ -251,24 +275,48 @@ export default function AdminPage() {
                             <>
                               <button
                                 onClick={() => handleCancel(r.id)}
-                                className="px-3 py-1.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 hover:bg-red-200 transition"
+                                disabled={updatingRequestId === r.requestId}
+                                className="px-3 py-1.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 hover:bg-red-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition flex items-center gap-1"
                               >
-                                Cancel
+                                {updatingRequestId === r.requestId ? (
+                                  <>
+                                    <LoadingSpinner size="sm" />
+                                    <span>Updating...</span>
+                                  </>
+                                ) : (
+                                  "Cancel"
+                                )}
                               </button>
                               <button
                                 onClick={() => handlePickup(r.id)}
-                                className="px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 hover:bg-blue-200 transition"
+                                disabled={updatingRequestId === r.requestId}
+                                className="px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition flex items-center gap-1"
                               >
-                                Picked Up
+                                {updatingRequestId === r.requestId ? (
+                                  <>
+                                    <LoadingSpinner size="sm" />
+                                    <span>Updating...</span>
+                                  </>
+                                ) : (
+                                  "Picked Up"
+                                )}
                               </button>
                             </>
                           )}
                           {r.status === "CLAIMED" && (
                             <button
                               onClick={() => handleDeliver(r.id)}
-                              className="px-3 py-1.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 hover:bg-green-200 transition"
+                              disabled={updatingRequestId === r.requestId}
+                              className="px-3 py-1.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 hover:bg-green-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition flex items-center gap-1"
                             >
-                              Delivered
+                              {updatingRequestId === r.requestId ? (
+                                <>
+                                  <LoadingSpinner size="sm" />
+                                  <span>Updating...</span>
+                                </>
+                              ) : (
+                                "Delivered"
+                              )}
                             </button>
                           )}
                           {(r.status === "DELIVERED" || r.status === "CANCELLED") && (
