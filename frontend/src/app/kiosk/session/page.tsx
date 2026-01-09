@@ -557,228 +557,273 @@ export default function SessionKioskPage() {
       </div>
 
       {/* Main Layout */}
-      <div className="flex gap-8 p-8 w-full max-w-none" style={{ height: "calc(100vh - 80px)" }}>
+      <div className="flex gap-4 p-4 w-full max-w-none" style={{ height: "calc(100vh - 80px)" }}>
         {/* Left Column - 55% */}
-        <div className="flex flex-col space-y-4 overflow-hidden" style={{ flexBasis: "55%", width: "55%", maxWidth: "55%" }}>
-          {/* Scan Item Banner - Compact */}
-          <div className="bg-[#FDF7EF] rounded-xl p-4 border border-[#E5D5C8]">
-            <h2 className="text-lg font-semibold text-[#3B2A21] mb-3">Enter SKU</h2>
-            <div className="flex gap-3 mb-3">
-              <input
-                type="text"
-                value={sku}
-                onChange={(e) => {
-                  const newSku = e.target.value;
-                  setSku(newSku);
-                  
-                  // Clear any existing debounce timer
-                  if (scanDebounceTimerRef.current) {
-                    clearTimeout(scanDebounceTimerRef.current);
-                  }
-                  
-                  // Optional: Auto-scan after user stops typing for 1 second (if SKU looks complete)
-                  // This is disabled by default - uncomment if you want auto-scan
-                  // scanDebounceTimerRef.current = setTimeout(() => {
-                  //   if (newSku.trim().length >= 3 && !isScanning) {
-                  //     handleScan();
-                  //   }
-                  // }, 1000);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && sku.trim() && !isScanning && !requestInProgressRef.current) {
-                    e.preventDefault();
-                    // Clear debounce timer if user presses Enter
-                    if (scanDebounceTimerRef.current) {
-                      clearTimeout(scanDebounceTimerRef.current);
-                      scanDebounceTimerRef.current = null;
-                    }
-                    handleScan();
-                  }
-                }}
-                placeholder="Enter SKU (111, 222, 333, or 444)"
-                className="flex-1 bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
-                autoFocus
-                disabled={isScanning}
-                aria-label="SKU input field. Press Enter to scan item."
-              />
-              <button
-                onClick={handleScan}
-                disabled={isScanning || !sku.trim()}
-                className="px-6 py-2 bg-[#4A3A2E] hover:bg-[#3B2A21] disabled:bg-gray-400 disabled:cursor-not-allowed text-[#FDF7EF] font-medium rounded-md transition-all text-sm flex items-center gap-2"
-              >
-                {isScanning ? (
-                  <>
-                    <LoadingSpinner size="sm" />
-                    <span>Scanning...</span>
-                  </>
-                ) : (
-                  "Scan Item"
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* Your Items Section - Maximized */}
-          <div className="flex-1">
-            <h2 className="text-3xl font-semibold text-[#3B2A21] mb-6">Your Items ({items.length})</h2>
-            
-            {items.length === 0 ? (
-              <div className="bg-[#FDF7EF] rounded-2xl p-12 border border-[#E5D5C8] text-center">
-                <div className="w-20 h-20 bg-[#E5D5C8] rounded-full mx-auto mb-4 flex items-center justify-center">
-                  <svg className="w-10 h-10 text-[#3B2A21]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                </div>
-                <p className="text-[#3B2A21] font-medium">No items scanned yet. Scan an item to get started.</p>
+        <div className="relative h-full overflow-hidden" style={{ flexBasis: "55%", width: "55%", maxWidth: "55%" }}>
+          <div className="absolute inset-0 flex flex-col bg-white rounded-2xl border border-[#E5D5C8] shadow-sm">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-[#E5D5C8]/30 flex-shrink-0">
+              <div>
+                <h1 className="text-2xl font-medium text-[#3B2A21]">Your Items</h1>
+                <p className="text-sm text-[#8C6A4B] mt-1">{items.length} item{items.length !== 1 ? 's' : ''} scanned</p>
               </div>
-            ) : (
-              <div className="space-y-6">
-                {/* Main Item Card - Larger */}
-                {mainItem && (
-                  <div className="bg-[#FDF7EF] rounded-2xl p-8 border border-[#E5D5C8]">
-                    <div className="flex gap-8">
-                      <div className="w-40 h-56 bg-[#E5D5C8] rounded-xl overflow-hidden">
-                        {mainItem.product?.imageUrl ? (
-                          <img
-                            src={mainItem.product.imageUrl}
-                            alt={mainItem.product.name || 'Product'}
-                            loading="lazy"
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              e.currentTarget.style.display = 'none';
-                              e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                            }}
-                          />
-                        ) : null}
-                        <div className={`w-full h-full flex items-center justify-center ${mainItem.product?.imageUrl ? 'hidden' : ''}`}>
-                          <span className="text-[#3B2A21] text-lg">Image</span>
-                        </div>
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="text-3xl font-semibold text-[#3B2A21] mb-4">{mainItem.product?.name || 'Unknown Product'}</h3>
-                        <div className="flex gap-3 mb-6">
-                          <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">{mainItem.derivedColor || mainItem.product?.color || 'Unknown Color'}</span>
-                          <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">{mainItem.derivedSize ? `Size ${mainItem.derivedSize}` : 'Size N/A'}</span>
-                          <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">${mainItem.product?.price || 75}</span>
-                          {mainItem.isDelivered && (
-                            <span className="px-4 py-2 bg-green-100 text-green-700 text-base rounded-full font-medium">✓ Delivered</span>
-                          )}
-                        </div>
-                        <div className="flex flex-col gap-3">
-                          <button
-                            onClick={() => handleRequestSize(mainItem)}
-                            className="px-6 py-4 bg-[#4A3A2E] text-[#FDF7EF] rounded-xl font-medium hover:bg-[#3B2A21] transition-all text-left"
-                          >
-                            <div className="text-base font-semibold">Request different size/colour for this item</div>
-                            <div className="text-sm opacity-90">Associate will bring your requested size to Room 7.</div>
-                          </button>
-                          <button
-                            onClick={() => handleLeaveFeedback(mainItem)}
-                            className="px-6 py-4 border border-[#4A3A2E] text-[#4A3A2E] rounded-xl font-medium hover:bg-[#4A3A2E] hover:text-[#FDF7EF] transition-all text-left"
-                          >
-                            <div className="text-base font-semibold">☆ Save / Share + Add Notes</div>
-                            <div className="text-sm opacity-90">Your notes help us personalize your experience.</div>
-                          </button>
-                        </div>
-                      </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setIsEndSessionModalOpen(true)}
+                  className="px-4 py-2 border border-[#E5D5C8] text-[#3B2A21] rounded-xl hover:bg-[#F5E9DA] transition-all duration-200 transform hover:scale-105 active:scale-95"
+                >
+                  End Session
+                </button>
+                <SessionTimer startTime={sessionStartTime} />
+              </div>
+            </div>
+
+            {/* Content Area */}
+            <div className="flex-1 flex flex-col p-4 min-h-0">
+              {items.length === 0 ? (
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="w-20 h-20 bg-[#E5D5C8]/30 rounded-full flex items-center justify-center mx-auto mb-6">
+                      <span className="text-3xl">📱</span>
+                    </div>
+                    <h2 className="text-xl font-medium text-[#3B2A21] mb-2">Ready to scan</h2>
+                    <p className="text-[#8C6A4B] mb-6">Scan the barcode on any item to get started</p>
+                    <div className="flex gap-3 justify-center">
+                      <input
+                        type="text"
+                        value={sku}
+                        onChange={(e) => {
+                          const newSku = e.target.value;
+                          setSku(newSku);
+                          
+                          // Clear any existing debounce timer
+                          if (scanDebounceTimerRef.current) {
+                            clearTimeout(scanDebounceTimerRef.current);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && sku.trim() && !isScanning && !requestInProgressRef.current) {
+                            e.preventDefault();
+                            // Clear debounce timer if user presses Enter
+                            if (scanDebounceTimerRef.current) {
+                              clearTimeout(scanDebounceTimerRef.current);
+                              scanDebounceTimerRef.current = null;
+                            }
+                            handleScan();
+                          }
+                        }}
+                        placeholder="Enter SKU (111, 222, 333, or 444)"
+                        className="px-4 py-3 border border-[#E5D5C8] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#4A3A2E] focus:border-transparent"
+                        autoFocus
+                        disabled={isScanning}
+                      />
+                      <button
+                        onClick={handleScan}
+                        disabled={isScanning || !sku.trim()}
+                        className="px-6 py-3 bg-[#4A3A2E] text-[#FDF7EF] rounded-xl font-medium hover:bg-[#3B2A21] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-md hover:shadow-lg flex items-center gap-2"
+                      >
+                        {isScanning ? (
+                          <>
+                            <LoadingSpinner size="sm" />
+                            <span>Scanning...</span>
+                          </>
+                        ) : (
+                          "Scan Item"
+                        )}
+                      </button>
                     </div>
                   </div>
-                )}
-
-                {/* Previous Items - Scrollable Carousel with Arrows */}
-                {previousItems.length > 0 && (
-                  <div className="relative h-32 w-full max-w-full overflow-hidden">
-                    <div 
-                      className="flex gap-4 overflow-x-auto scrollbar-hide drag-scroll h-full snap-x snap-mandatory"
-                      style={{ scrollBehavior: 'smooth' }}
-                      onMouseDown={(e) => {
-                        const container = e.currentTarget;
-                        const startX = e.pageX - container.offsetLeft;
-                        const scrollLeft = container.scrollLeft;
-                        
-                        const handleMouseMove = (e: MouseEvent) => {
-                          const x = e.pageX - container.offsetLeft;
-                          const walk = (x - startX) * 2;
-                          container.scrollLeft = scrollLeft - walk;
-                        };
-                        
-                        const handleMouseUp = () => {
-                          document.removeEventListener('mousemove', handleMouseMove);
-                          document.removeEventListener('mouseup', handleMouseUp);
-                        };
-                        
-                        document.addEventListener('mousemove', handleMouseMove);
-                        document.addEventListener('mouseup', handleMouseUp);
-                      }}
-                    >
-                      {previousItems.map((item, index) => {
-                        const originalIndex = items.findIndex(i => i === item);
-                        return (
-                          <div 
-                            key={`${item.sku}-${index}`} 
-                            onClick={() => setSelectedMainIndex(originalIndex)}
-                            className="bg-[#FDF7EF] rounded-xl p-4 border border-[#E5D5C8] cursor-pointer hover:bg-[#F5E9DA] transition-all flex-shrink-0 clickable snap-start"
-                            style={{ minWidth: 'calc(50% - 8px)' }}
-                          >
-                            <div className="flex gap-3 h-full">
-                              <div className="w-20 h-24 bg-[#E5D5C8] rounded-lg overflow-hidden flex-shrink-0">
-                                {item.product?.imageUrl ? (
-                                  <img
-                                    src={item.product.imageUrl}
-                                    alt={item.product.name || 'Product'}
-                                    loading="lazy"
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => {
-                                      e.currentTarget.style.display = 'none';
-                                      e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                                    }}
-                                  />
-                                ) : null}
-                                <div className={`w-full h-full flex items-center justify-center ${item.product?.imageUrl ? 'hidden' : ''}`}>
-                                  <span className="text-[#3B2A21] text-sm">Img</span>
-                                </div>
-                              </div>
-                              <div className="flex-1 min-w-0 flex flex-col justify-between">
-                                <div>
-                                  <h4 className="font-semibold text-[#3B2A21] text-base mb-2 truncate">{item.product?.name || 'Unknown Product'}</h4>
-                                  <p className="text-[#3B2A21] text-sm mb-2">SKU: {item.sku} {item.isDelivered && <span className="text-green-600 font-medium">• Delivered</span>}</p>
-                                </div>
-                                <div className="flex flex-wrap gap-2">
-                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">{item.derivedColor || item.product?.color || 'Unknown'}</span>
-                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">{item.derivedSize ? `Size ${item.derivedSize}` : 'Size N/A'}</span>
-                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">${item.product?.price || 75}</span>
-                                </div>
-                              </div>
+                </div>
+              ) : (
+                <>
+                  {/* Hero Item Display */}
+                  {mainItem && (
+                    <div className="flex-shrink-0 mb-4">
+                      <div className="bg-gradient-to-br from-[#FDF7EF] to-[#F5E9DA] rounded-2xl p-6 border border-[#E5D5C8]">
+                        <div className="flex gap-6">
+                          <div className="w-52 h-72 bg-white rounded-xl shadow-sm flex items-center justify-center flex-shrink-0 overflow-hidden border border-[#E5D5C8]/30">
+                            {mainItem.product?.imageUrl ? (
+                              <img
+                                src={mainItem.product.imageUrl}
+                                alt={mainItem.product.name || 'Product'}
+                                loading="lazy"
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                  e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                }}
+                              />
+                            ) : null}
+                            <div className={`w-full h-full flex items-center justify-center ${mainItem.product?.imageUrl ? 'hidden' : ''}`}>
+                              <span className="text-[#3B2A21] text-xl">Image</span>
                             </div>
                           </div>
-                        );
-                      })}
+                          <div className="flex-1 flex flex-col justify-between">
+                            <div>
+                              <h3 className="text-3xl font-semibold text-[#3B2A21] mb-3">{mainItem.product?.name || 'Unknown Product'}</h3>
+                              <div className="flex flex-wrap gap-2 mb-4">
+                                <span className="px-4 py-2 bg-white text-[#3B2A21] text-base rounded-full border border-[#E5D5C8]/50 shadow-sm">{mainItem.derivedColor || mainItem.product?.color || 'Unknown Color'}</span>
+                                <span className="px-4 py-2 bg-white text-[#3B2A21] text-base rounded-full border border-[#E5D5C8]/50 shadow-sm">{mainItem.derivedSize ? `Size ${mainItem.derivedSize}` : 'Size N/A'}</span>
+                                <span className="px-4 py-2 bg-white text-[#3B2A21] text-base rounded-full border border-[#E5D5C8]/50 shadow-sm font-medium">${mainItem.product?.price || 75}</span>
+                                {mainItem.isDelivered && (
+                                  <span className="px-4 py-2 bg-emerald-100 text-emerald-700 text-base rounded-full font-medium border border-emerald-200">✓ Delivered</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <button
+                                onClick={() => handleRequestSize(mainItem)}
+                                className="px-6 py-4 bg-[#4A3A2E] text-[#FDF7EF] rounded-xl font-medium hover:bg-[#3B2A21] transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] shadow-md hover:shadow-lg text-left"
+                              >
+                                <div className="text-base font-semibold">Request different size/color</div>
+                                <div className="text-sm opacity-90">Associate will bring to your fitting room</div>
+                              </button>
+                              <button
+                                onClick={() => handleLeaveFeedback(mainItem)}
+                                className="px-6 py-4 border border-[#4A3A2E] text-[#4A3A2E] rounded-xl font-medium hover:bg-[#4A3A2E] hover:text-[#FDF7EF] transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] text-left"
+                              >
+                                <div className="text-base font-semibold">⭐ Save & add notes</div>
+                                <div className="text-sm opacity-90">Help us personalize your experience</div>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Item Timeline - Horizontal Carousel */}
+                  {previousItems.length > 0 && (
+                    <div className="flex-shrink-0">
+                      <h3 className="text-sm font-medium text-[#3B2A21]/80 mb-2 tracking-wide uppercase">Previously Scanned</h3>
+                      <div className="relative">
+                        <div 
+                          className="flex gap-3 overflow-x-auto overflow-y-hidden scrollbar-hide"
+                          style={{ scrollBehavior: 'smooth' }}
+                        >
+                          {previousItems.map((item, index) => {
+                            const originalIndex = items.findIndex(i => i === item);
+                            return (
+                              <div 
+                                key={`${item.sku}-${index}`} 
+                                onClick={() => setSelectedMainIndex(originalIndex)}
+                                className="bg-white rounded-xl p-4 border border-[#E5D5C8] cursor-pointer hover:shadow-md hover:border-[#4A3A2E]/20 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] flex-shrink-0"
+                                style={{ minWidth: '280px', height: '160px' }}
+                              >
+                                <div className="flex gap-4 h-full">
+                                  <div className="w-20 h-full bg-[#E5D5C8] rounded-xl overflow-hidden flex-shrink-0">
+                                    {item.product?.imageUrl ? (
+                                      <img
+                                        src={item.product.imageUrl}
+                                        alt={item.product.name || 'Product'}
+                                        loading="lazy"
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                          e.currentTarget.style.display = 'none';
+                                          e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                        }}
+                                      />
+                                    ) : null}
+                                    <div className={`w-full h-full flex items-center justify-center ${item.product?.imageUrl ? 'hidden' : ''}`}>
+                                      <span className="text-[#3B2A21] text-sm font-medium">IMG</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex-1 min-w-0 flex flex-col justify-between py-1">
+                                    <div className="space-y-2">
+                                      <h4 className="font-semibold text-[#3B2A21] text-base leading-tight truncate">{item.product?.name || 'Unknown Product'}</h4>
+                                      <p className="text-[#8C6A4B] text-sm">
+                                        SKU: {item.sku} 
+                                        {item.isDelivered && <span className="text-emerald-600 font-semibold ml-1">• Delivered</span>}
+                                      </p>
+                                    </div>
+                                    <div className="space-y-2">
+                                      <div className="flex flex-wrap gap-2">
+                                        <span className="px-3 py-1.5 bg-[#E5D5C8] text-[#3B2A21] text-sm font-medium rounded-full">{item.derivedColor || item.product?.color || 'Unknown'}</span>
+                                        <span className="px-3 py-1.5 bg-[#E5D5C8] text-[#3B2A21] text-sm font-medium rounded-full">{item.derivedSize ? `Size ${item.derivedSize}` : 'Size N/A'}</span>
+                                        <span className="px-3 py-1.5 bg-[#E5D5C8] text-[#3B2A21] text-sm font-bold rounded-full">${item.product?.price || 75}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Scan New Item */}
+                  <div className="flex-shrink-0 mt-2 pt-2 border-t border-[#E5D5C8]/30">
+                    <div className="flex gap-3">
+                      <input
+                        type="text"
+                        value={sku}
+                        onChange={(e) => {
+                          const newSku = e.target.value;
+                          setSku(newSku);
+                          
+                          // Clear any existing debounce timer
+                          if (scanDebounceTimerRef.current) {
+                            clearTimeout(scanDebounceTimerRef.current);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && sku.trim() && !isScanning && !requestInProgressRef.current) {
+                            e.preventDefault();
+                            // Clear debounce timer if user presses Enter
+                            if (scanDebounceTimerRef.current) {
+                              clearTimeout(scanDebounceTimerRef.current);
+                              scanDebounceTimerRef.current = null;
+                            }
+                            handleScan();
+                          }
+                        }}
+                        placeholder="Scan or enter SKU"
+                        className="flex-1 px-4 py-3 border border-[#E5D5C8] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#4A3A2E] focus:border-transparent"
+                        autoFocus
+                        disabled={isScanning}
+                      />
+                      <button
+                        onClick={handleScan}
+                        disabled={isScanning || !sku.trim()}
+                        className="px-6 py-3 bg-[#4A3A2E] text-[#FDF7EF] rounded-xl font-medium hover:bg-[#3B2A21] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-md hover:shadow-lg flex items-center gap-2"
+                      >
+                        {isScanning ? (
+                          <>
+                            <LoadingSpinner size="sm" />
+                            <span>Scanning...</span>
+                          </>
+                        ) : (
+                          "Add Item"
+                        )}
+                      </button>
                     </div>
                   </div>
-                )}
-              </div>
-            )}
+                </>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Right Column - 45% */}
         <div className="relative h-full overflow-hidden" style={{ flexBasis: "45%", width: "45%", maxWidth: "45%" }}>
-          <div className="absolute inset-0 flex flex-col bg-[#FDF7EF] rounded-2xl border border-[#E5D5C8] p-6">
+          <div className="absolute inset-0 flex flex-col bg-[#FDF7EF] rounded-2xl border border-[#E5D5C8] p-4">
             <div className="flex items-center justify-between mb-4 flex-shrink-0">
-              <h2 className="text-3xl font-semibold text-[#3B2A21]">Recommended for this item</h2>
+              <h2 className="text-2xl font-medium text-[#3B2A21]">Complete Your Look</h2>
             </div>
             
-            {/* Category Filter Pills */}
+            {/* Category Filter Pills - More Subtle */}
             {mainItem && (
-              <div className="flex gap-2 mb-6 flex-shrink-0">
+              <div className="flex gap-2 mb-4 flex-shrink-0">
                 {(["top", "bottom", "shoes", "accessory"] as const).map((category) => (
                   <button
                     key={category}
                     onClick={() => handleCategoryFilter(category)}
-                    className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 ${
                       activeCategory === category
-                        ? "bg-[#4A3A2E] text-[#FDF7EF]"
-                        : "bg-white text-[#3B2A21] border border-[#E5D5C8] hover:bg-[#F5E9DA]"
+                        ? "bg-[#4A3A2E] text-[#FDF7EF] shadow-lg"
+                        : "bg-white/60 text-[#3B2A21] border border-[#E5D5C8]/50 hover:bg-white hover:shadow-md"
                     }`}
                   >
                     {category === "accessory" 
@@ -793,31 +838,41 @@ export default function SessionKioskPage() {
             
             {!mainItem ? (
               <div className="flex-1 flex items-center justify-center">
-                <p className="text-[#3B2A21]">Scan an item to see outfit recommendations</p>
+                <div className="text-center">
+                  <div className="w-16 h-16 bg-[#E5D5C8]/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <span className="text-2xl">👕</span>
+                  </div>
+                  <p className="text-[#3B2A21]/70 text-lg">Scan an item to discover your perfect look</p>
+                </div>
               </div>
             ) : loadingRecommendations ? (
               <div className="flex-1 flex items-center justify-center">
-                <p className="text-[#3B2A21]">Loading recommendations...</p>
+                <div className="text-center">
+                  <div className="w-8 h-8 border-2 border-[#4A3A2E]/20 border-t-[#4A3A2E] rounded-full animate-spin mx-auto mb-4"></div>
+                  <p className="text-[#3B2A21]/70">Curating recommendations...</p>
+                </div>
               </div>
             ) : activeCategory === "all" ? (
               <div className="flex-1 flex items-center justify-center">
-                <p className="text-[#3B2A21]">Select a category to see recommendations</p>
+                <p className="text-[#3B2A21]/70">Select a category to see recommendations</p>
               </div>
             ) : recommendations.length === 0 ? (
               <div className="flex-1 flex items-center justify-center">
-                <p className="text-[#3B2A21]">No recommendations found for {activeCategory}</p>
+                <p className="text-[#3B2A21]/70">No recommendations found for {activeCategory}</p>
               </div>
             ) : (
-              <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-4 overflow-y-auto">
-                {recommendations.slice(0, 4).map((rec) => {
-                  return (
-                    <div key={rec.productId} className="bg-white rounded-xl p-4 border border-[#E5D5C8] flex flex-col">
-                      <div className="flex gap-3 flex-1">
-                        <div className="w-20 h-20 bg-[#E5D5C8] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
-                          {rec.imageUrl ? (
+              <div className="flex-1 flex flex-col gap-6 overflow-y-auto premium-scroll pr-2">
+                {/* Perfect Match - Hero Card */}
+                {recommendations[0] && (
+                  <div className="flex-shrink-0">
+                    <h3 className="text-sm font-medium text-[#3B2A21]/80 mb-3 tracking-wide uppercase">Perfect Match</h3>
+                    <div className="bg-white rounded-2xl p-6 border border-[#E5D5C8] shadow-sm hover:shadow-lg transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]">
+                      <div className="flex gap-4">
+                        <div className="w-24 h-24 bg-[#E5D5C8] rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
+                          {recommendations[0].imageUrl ? (
                             <img
-                              src={rec.imageUrl}
-                              alt={rec.name}
+                              src={recommendations[0].imageUrl}
+                              alt={recommendations[0].name}
                               loading="lazy"
                               className="w-full h-full object-cover"
                               onError={(e) => {
@@ -826,49 +881,153 @@ export default function SessionKioskPage() {
                               }}
                             />
                           ) : null}
-                          <div className={`w-full h-full flex items-center justify-center ${rec.imageUrl ? 'hidden' : ''}`}>
+                          <div className={`w-full h-full flex items-center justify-center ${recommendations[0].imageUrl ? 'hidden' : ''}`}>
                             <span className="text-[#3B2A21] text-sm">IMG</span>
                           </div>
                         </div>
                         <div className="flex-1 min-w-0 flex flex-col">
-                          <h4 className="font-medium text-[#3B2A21] text-sm mb-2 truncate">{rec.name}</h4>
-                          <div className="text-xs text-[#8C6A4B] mb-2">{rec.category} • ${rec.price}</div>
-                          <div className="flex flex-col gap-1 flex-1 mb-2">
-                            <span className="px-2 py-1 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full w-fit">{rec.color}</span>
-                            {rec.score > 0 && (
-                              <span className="text-xs text-emerald-600 font-semibold">
-                                Match: {Math.round(rec.score * 100)}%
+                          <h4 className="font-semibold text-[#3B2A21] text-base mb-1">{recommendations[0].name}</h4>
+                          <div className="text-sm text-[#8C6A4B] mb-3">${recommendations[0].price}</div>
+                          <div className="flex items-center gap-2 mb-4">
+                            <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full">{recommendations[0].color}</span>
+                            {recommendations[0].score > 0 && (
+                              <span className="text-xs text-emerald-600 font-semibold bg-emerald-50 px-2 py-1 rounded-full">
+                                {Math.round(recommendations[0].score * 100)}% Match
                               </span>
                             )}
                           </div>
-                          
-                          <div className="flex flex-col gap-2 mt-auto">
-                            <button 
-                              onClick={() => handleRequestSize({
-                                sku: rec.productId,
-                                entityType: 'SCAN' as const,
-                                sessionId: sessionId || 'demo_session',
-                                createdAt: new Date().toISOString(),
-                                product: {
-                                  productId: rec.productId,
-                                  name: rec.name,
-                                  color: rec.color,
-                                  category: rec.category,
-                                  price: rec.price,
-                                  articleType: rec.articleType,
-                                  gender: 'unisex'
-                                }
-                              })}
-                              className="text-xs border border-[#4A3A2E] text-[#4A3A2E] rounded-md py-1 hover:bg-[#4A3A2E] hover:text-[#FDF7EF] transition-all"
-                            >
-                              Request
-                            </button>
-                          </div>
+                          <button 
+                            onClick={() => handleRequestSize({
+                              sku: recommendations[0].productId,
+                              entityType: 'SCAN' as const,
+                              sessionId: sessionId || 'demo_session',
+                              createdAt: new Date().toISOString(),
+                              product: {
+                                productId: recommendations[0].productId,
+                                name: recommendations[0].name,
+                                color: recommendations[0].color,
+                                category: recommendations[0].category,
+                                price: recommendations[0].price,
+                                articleType: recommendations[0].articleType,
+                                gender: 'unisex'
+                              }
+                            })}
+                            className="bg-[#4A3A2E] text-[#FDF7EF] rounded-xl py-2 px-4 text-sm font-medium hover:bg-[#3B2A21] transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-md hover:shadow-lg"
+                          >
+                            Request This Item
+                          </button>
                         </div>
                       </div>
                     </div>
-                  );
-                })}
+                  </div>
+                )}
+
+                {/* Complete the Look - 2 Items */}
+                {recommendations.length > 1 && (
+                  <div className="flex-shrink-0">
+                    <h3 className="text-sm font-medium text-[#3B2A21]/80 mb-3 tracking-wide uppercase">Complete the Look</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      {recommendations.slice(1, 3).map((rec) => (
+                        <div key={rec.productId} className="bg-white rounded-xl p-4 border border-[#E5D5C8] hover:shadow-md transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]">
+                          <div className="w-16 h-16 bg-[#E5D5C8] rounded-lg flex items-center justify-center mx-auto mb-3 overflow-hidden">
+                            {rec.imageUrl ? (
+                              <img
+                                src={rec.imageUrl}
+                                alt={rec.name}
+                                loading="lazy"
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                  e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                }}
+                              />
+                            ) : null}
+                            <div className={`w-full h-full flex items-center justify-center ${rec.imageUrl ? 'hidden' : ''}`}>
+                              <span className="text-[#3B2A21] text-xs">IMG</span>
+                            </div>
+                          </div>
+                          <h4 className="font-medium text-[#3B2A21] text-sm mb-1 text-center truncate">{rec.name}</h4>
+                          <div className="text-xs text-[#8C6A4B] text-center mb-2">${rec.price}</div>
+                          <div className="flex justify-center mb-3">
+                            <span className="px-2 py-1 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full">{rec.color}</span>
+                          </div>
+                          <button 
+                            onClick={() => handleRequestSize({
+                              sku: rec.productId,
+                              entityType: 'SCAN' as const,
+                              sessionId: sessionId || 'demo_session',
+                              createdAt: new Date().toISOString(),
+                              product: {
+                                productId: rec.productId,
+                                name: rec.name,
+                                color: rec.color,
+                                category: rec.category,
+                                price: rec.price,
+                                articleType: rec.articleType,
+                                gender: 'unisex'
+                              }
+                            })}
+                            className="w-full text-xs border border-[#4A3A2E] text-[#4A3A2E] rounded-lg py-2 hover:bg-[#4A3A2E] hover:text-[#FDF7EF] transition-all duration-200 transform hover:scale-105 active:scale-95"
+                          >
+                            Request
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* You Might Also Like - Remaining Items */}
+                {recommendations.length > 3 && (
+                  <div className="flex-1 min-h-0">
+                    <h3 className="text-sm font-medium text-[#3B2A21]/80 mb-3 tracking-wide uppercase">You Might Also Like</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      {recommendations.slice(3, 5).map((rec) => (
+                        <div key={rec.productId} className="bg-white rounded-xl p-3 border border-[#E5D5C8] hover:shadow-md transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]">
+                          <div className="w-12 h-12 bg-[#E5D5C8] rounded-lg flex items-center justify-center mx-auto mb-2 overflow-hidden">
+                            {rec.imageUrl ? (
+                              <img
+                                src={rec.imageUrl}
+                                alt={rec.name}
+                                loading="lazy"
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                  e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                }}
+                              />
+                            ) : null}
+                            <div className={`w-full h-full flex items-center justify-center ${rec.imageUrl ? 'hidden' : ''}`}>
+                              <span className="text-[#3B2A21] text-xs">IMG</span>
+                            </div>
+                          </div>
+                          <h4 className="font-medium text-[#3B2A21] text-xs mb-1 text-center truncate">{rec.name}</h4>
+                          <div className="text-xs text-[#8C6A4B] text-center mb-2">${rec.price}</div>
+                          <button 
+                            onClick={() => handleRequestSize({
+                              sku: rec.productId,
+                              entityType: 'SCAN' as const,
+                              sessionId: sessionId || 'demo_session',
+                              createdAt: new Date().toISOString(),
+                              product: {
+                                productId: rec.productId,
+                                name: rec.name,
+                                color: rec.color,
+                                category: rec.category,
+                                price: rec.price,
+                                articleType: rec.articleType,
+                                gender: 'unisex'
+                              }
+                            })}
+                            className="w-full text-xs border border-[#4A3A2E] text-[#4A3A2E] rounded-lg py-1.5 hover:bg-[#4A3A2E] hover:text-[#FDF7EF] transition-all duration-200 transform hover:scale-105 active:scale-95"
+                          >
+                            Request
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
