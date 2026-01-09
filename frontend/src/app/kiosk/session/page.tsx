@@ -1,74 +1,45 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Modal from "@/components/Modal";
 import SessionTimer from "@/components/SessionTimer";
 import Notification from "@/components/Notification";
-import { generateSessionId } from "@/utils/sessionId";
-import { ITEMS_BY_SKU } from "@/data/items";
+import EndSessionModal, { SessionFeedback } from "@/components/EndSessionModal";
+import LoadingSpinner from "@/components/LoadingSpinner";
+import { VestiaAPI, RecommendationItem, ItemWithProduct } from "@/lib/api";
 
-type Item = {
-  sku: string;
-  name: string;
-  color: string;
-  size: string;
-  imageUrl?: string;
-  delivered?: boolean;
-};
+type Item = ItemWithProduct;
 
-type Recommendation = {
-  sku: string;
-  name: string;
-  brand: string;
-  price: number;
-  color: string;
-  styleTags: string[];
-  image: string;
-  score: number;
-  scoreBreakdown: {
-    colorCompatibility: number;
-    colorPatternSupport: number;
-    brandAffinity: number;
-    priceCloseness: number;
-    styleOverlap: number;
-    coOccurrence: number;
-  };
-  explanations: string[];
-};
-
-type RecommendationData = {
-  baseItem: {
-    sku: string;
-    name: string;
-    category: string;
-    color: string;
-  };
-  recommendations: {
-    [category: string]: Recommendation[];
-  };
-  customerPersonalized: boolean;
-};
-
-const BACKEND_URL = "http://localhost:4000";
+type CategoryFilter = "top" | "bottom" | "shoes" | "accessory" | "all";
 
 export default function SessionKioskPage() {
   const router = useRouter();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
   const [sku, setSku] = useState("");
-  const [name, setName] = useState("");
-  const [color, setColor] = useState("");
-  const [size, setSize] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [selectedMainIndex, setSelectedMainIndex] = useState<number>(-1);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("success");
 
+  // Loading states
+  const [isScanning, setIsScanning] = useState(false);
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+
+  // Request deduplication - track submitted requests to prevent duplicates
+  const submittedRequestsRef = useRef<Set<string>>(new Set());
+  const scanDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const requestInProgressRef = useRef(false);
+
+  // Cache session gender to avoid repeated API calls
+  const [sessionGender, setSessionGender] = useState<string | null>(null);
+
   // Modal states
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+  const [isEndSessionModalOpen, setIsEndSessionModalOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [requestedSize, setRequestedSize] = useState("");
   const [requestedColor, setRequestedColor] = useState("");
@@ -88,8 +59,18 @@ export default function SessionKioskPage() {
   }[]>([]); // Track request details
 
   // Recommendations state
-  const [recommendations, setRecommendations] = useState<RecommendationData | null>(null);
+  const [recommendations, setRecommendations] = useState<RecommendationItem[]>([]);
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<CategoryFilter>("all");
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (scanDebounceTimerRef.current) {
+        clearTimeout(scanDebounceTimerRef.current);
+      }
+    };
+  }, []);
 
   // Restore session or redirect to welcome
   useEffect(() => {
@@ -151,60 +132,36 @@ export default function SessionKioskPage() {
 
   // Mock system removed - notifications will work when backend implements /api/requests/status endpoint
 
-  // Poll for delivered items and add them to the kiosk
+  // Poll for delivered items every 5 seconds (reduced from 3)
   useEffect(() => {
     if (!sessionId) return;
-
+    
     const pollDelivered = setInterval(async () => {
       try {
-        const res = await fetch(`${BACKEND_URL}/api/session/${sessionId}/delivered`);
-        if (res.ok) {
-          const data = await res.json();
-          const deliveredItems = data.items || [];
-          
-          // Add delivered items to the kiosk if not already present
-          deliveredItems.forEach((deliveredItem: any) => {
-            const alreadyExists = items.some(item => 
-              item.sku === deliveredItem.sku && item.delivered
-            );
-            
-            if (!alreadyExists) {
-              // Look up full item data from our hardcoded items
-              const fullItemData = ITEMS_BY_SKU[deliveredItem.sku];
-              
-              const newItem: Item = {
-                sku: deliveredItem.sku,
-                name: fullItemData?.name || deliveredItem.name,
-                color: deliveredItem.color,
-                size: deliveredItem.size,
-                imageUrl: fullItemData?.imageUrl,
-                delivered: true
-              };
-              
-              setItems(prev => [...prev, newItem]);
-              setNotification({
-                message: `${newItem.name} has been delivered to your fitting room!`,
-                type: "success"
-              });
-            }
-          });
+        const itemsWithProducts = await VestiaAPI.getSessionWithProducts(sessionId);
+        setItems(itemsWithProducts);
+        // Update selected index if new items were added
+        if (itemsWithProducts.length > items.length) {
+          setSelectedMainIndex(itemsWithProducts.length - 1);
         }
       } catch (err) {
-        console.warn("Failed to check for delivered items:", err);
+        console.error("Failed to poll for delivered items:", err);
       }
-    }, 3000); // Check every 3 seconds
-
+    }, 5000); // Increased from 3000ms to 5000ms
+    
     return () => clearInterval(pollDelivered);
-  }, [sessionId, items]);
+  }, [sessionId, items.length]);
 
   async function loadSession(id: string) {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/session/${id}`);
-      if (res.ok) {
-        const data = await res.json();
-        const loadedItems = data.items || [];
-        setItems(loadedItems);
-        setSelectedMainIndex(loadedItems.length > 0 ? loadedItems.length - 1 : -1);
+      const loadedItems = await VestiaAPI.getSessionWithProducts(id);
+      setItems(loadedItems);
+      setSelectedMainIndex(loadedItems.length > 0 ? loadedItems.length - 1 : -1);
+      
+      // Cache session gender on first load
+      if (!sessionGender && loadedItems.length > 0) {
+        const gender = await VestiaAPI.getSessionGender(id);
+        setSessionGender(gender);
       }
     } catch (err) {
       console.error("Failed to load session:", err);
@@ -213,56 +170,63 @@ export default function SessionKioskPage() {
 
   async function handleScan() {
     setMessage("");
-    if (!sku) {
+    if (!sku || !sku.trim()) {
       setMessage("SKU is required.");
       setMessageType("error");
       return;
     }
 
-    // Look up item in hardcoded data
-    const foundItem = ITEMS_BY_SKU[sku];
-    if (foundItem) {
-      const newItem: Item = {
-        sku: foundItem.sku,
-        name: foundItem.name,
-        color: foundItem.color,
-        size: foundItem.size,
-        imageUrl: foundItem.imageUrl,
-      };
+    // Prevent multiple simultaneous scans
+    if (isScanning || requestInProgressRef.current) {
+      return;
+    }
+
+    const skuToScan = sku.trim();
+    const currentSessionId = sessionId || "demo_session";
+
+    // Check if this SKU was just scanned (prevent duplicate scans)
+    const recentScanKey = `${currentSessionId}-${skuToScan}`;
+    if (submittedRequestsRef.current.has(recentScanKey)) {
+      setMessage("This item was just scanned. Please wait a moment.");
+      setMessageType("error");
+      return;
+    }
+
+    setIsScanning(true);
+    requestInProgressRef.current = true;
+    submittedRequestsRef.current.add(recentScanKey);
+
+    try {
+      // Send only SKU to backend
+      console.log("Scanning SKU:", skuToScan, "for session:", currentSessionId);
+      await VestiaAPI.scanItem(currentSessionId, skuToScan, "KIOSK-001");
       
-      // Update local state
-      setItems(prev => {
-        const updated = [...prev, newItem];
-        // Select the newly added item after state update
-        setTimeout(() => setSelectedMainIndex(updated.length - 1), 0);
-        return updated;
-      });
-      setMessage(`Scanned: ${foundItem.name}`);
+      // Fetch updated session data with product metadata
+      console.log("Fetching session data...");
+      const itemsWithProducts = await VestiaAPI.getSessionWithProducts(currentSessionId);
+      console.log("Session data received:", itemsWithProducts);
+      setItems(itemsWithProducts || []);
+      
+      // Select the newly added item
+      setTimeout(() => setSelectedMainIndex((itemsWithProducts || []).length - 1), 0);
+      
+      setMessage("Item scanned successfully!");
       setMessageType("success");
       setSku("");
-
-      // Also send to backend for analytics
-      try {
-        await fetch(`${BACKEND_URL}/api/session/scan`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId: sessionId || "demo_session",
-            sku: foundItem.sku,
-            name: foundItem.name,
-            color: foundItem.color,
-            size: foundItem.size,
-            category: foundItem.category,
-            material: foundItem.material,
-            price: foundItem.price,
-          }),
-        });
-      } catch (err) {
-        console.warn("Failed to sync with backend:", err);
-      }
-    } else {
-      setMessage(`SKU "${sku}" not found. Try: 111, 222, 333, or 444`);
+      
+      // Remove from deduplication set after 2 seconds (allow re-scanning after delay)
+      setTimeout(() => {
+        submittedRequestsRef.current.delete(recentScanKey);
+      }, 2000);
+    } catch (err) {
+      console.error("Failed to scan item:", err);
+      setMessage(`Failed to scan item: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setMessageType("error");
+      // Remove from deduplication set on error so user can retry
+      submittedRequestsRef.current.delete(recentScanKey);
+    } finally {
+      setIsScanning(false);
+      requestInProgressRef.current = false;
     }
   }
 
@@ -276,47 +240,80 @@ export default function SessionKioskPage() {
   async function submitRequest() {
     if (!selectedItem) return;
 
+    // CRITICAL FIX: Check loading state at the start to prevent duplicate submissions
+    if (isSubmittingRequest || requestInProgressRef.current) {
+      console.log("Request already in progress, ignoring duplicate click");
+      return;
+    }
+
+    // Create unique request key for deduplication
+    const requestKey = `${sessionId || "demo_session"}-${selectedItem.sku}-${requestedSize}-${requestedColor}-${Date.now()}`;
+    
+    // Check if this exact request was just submitted
+    if (submittedRequestsRef.current.has(requestKey)) {
+      console.log("Duplicate request detected, ignoring");
+      return;
+    }
+
+    setIsSubmittingRequest(true);
+    requestInProgressRef.current = true;
+    submittedRequestsRef.current.add(requestKey);
+
+    // Store values before async operations
+    const currentSessionId = sessionId || "demo_session";
+    const currentSku = selectedItem.sku;
+    const currentSize = requestedSize;
+    const currentColor = requestedColor;
+    const currentItemName = selectedItem.product?.name || 'Unknown Product';
+
     setMessage("");
+
     try {
-      const res = await fetch(`${BACKEND_URL}/api/request`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: sessionId || "demo_session",
-          sku: selectedItem.sku,
-          requestedSize: requestedSize || null,
-          requestedColor: requestedColor || null,
-        }),
+      const data = await VestiaAPI.createRequest({
+        sessionId: currentSessionId,
+        sku: currentSku,
+        requestedSize: currentSize || undefined,
+        requestedColor: currentColor || undefined,
       });
 
-      if (!res.ok) {
-        const errorData = await res.json();
-        setMessage(errorData.error || "Failed to send request.");
-        setMessageType("error");
-        return;
-      }
-
-      const data = await res.json();
-      setMessage("Request sent successfully!");
-      setMessageType("success");
+      // Close modal immediately for better UX (optimistic update)
       setIsRequestModalOpen(false);
       setSelectedItem(null);
       setRequestedSize("");
       setRequestedColor("");
-      
+
       // Add request details to pending requests for status tracking
-      if (data.requestId || data.id) {
+      if (data.requestId) {
         setPendingRequests(prev => [...prev, {
-          id: (data.requestId || data.id).toString(),
-          itemName: selectedItem.name,
-          size: requestedSize || selectedItem.size,
-          color: requestedColor || "Default"
+          id: data.requestId.toString(),
+          itemName: currentItemName,
+          size: currentSize || 'Unknown',
+          color: currentColor || "Default"
         }]);
       }
+
+      // Show success message
+      setMessage("Request sent successfully!");
+      setMessageType("success");
+
+      // Note: Removed unnecessary session refresh - it's already polled every 5 seconds
+      // This reduces API calls and improves performance
+
+      // Remove from deduplication set after 3 seconds
+      setTimeout(() => {
+        submittedRequestsRef.current.delete(requestKey);
+      }, 3000);
     } catch (err) {
-      console.error(err);
+      console.error("Request submission error:", err);
       setMessage("Network error while sending request.");
       setMessageType("error");
+      // Remove from deduplication set on error so user can retry
+      submittedRequestsRef.current.delete(requestKey);
+      // Re-open modal on error so user can try again
+      setIsRequestModalOpen(true);
+    } finally {
+      setIsSubmittingRequest(false);
+      requestInProgressRef.current = false;
     }
   }
 
@@ -332,24 +329,14 @@ export default function SessionKioskPage() {
 
     setMessage("");
     try {
-      const res = await fetch(`${BACKEND_URL}/api/feedback`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          rating: Number(feedbackRating),
-          comment: feedbackComment,
-        }),
+      // TODO: Implement feedback endpoint in AWS
+      // For now, just show success message
+      console.log("Feedback submitted:", {
+        sessionId,
+        rating: Number(feedbackRating),
+        comment: feedbackComment,
       });
 
-      if (!res.ok) {
-        const errorData = await res.json();
-        setMessage(errorData.error || "Failed to submit feedback.");
-        setMessageType("error");
-        return;
-      }
-
-      await res.json();
       setMessage("Thank you for your feedback!");
       setMessageType("success");
       setIsFeedbackModalOpen(false);
@@ -363,108 +350,169 @@ export default function SessionKioskPage() {
     }
   }
 
-  // Map backend SKU to frontend image URL
-  function getImageUrlForSku(sku: string): string {
-    // Map backend catalog SKUs to frontend images
-    const imageMap: { [key: string]: string } = {
-      "119704139_1": "/images/items/Classic Blue Slim-Fit Oxford Shirt.jpg",
-      "119704139_2": "/images/items/Navy Blue Crew Neck T-Shirt h&m.jpeg",
-      "120556789_1": "/images/items/Slim-Fit Khaki Chinos levis.jpeg",
-      "120556789_2": "/images/items/Black Skinny Jeans levis.jpeg",
-      "120556789_3": "/images/items/Grey Dress Pants zara.jpg",
-      "121445678_1": "/images/items/White Leather Sneakers Nike.jpeg",
-      "121445678_2": "/images/items/Black Running Shoes adidas.jpg",
-      "121445678_3": "/images/items/Brown Leather Loafers clarks.jpeg",
-      "122334455_1": "/images/items/Navy Blazer zara.jpg",
-      "111": "/images/items/tshirt.png",
-      "222": "/images/items/shorts.png",
-      "333": "/images/items/sneakers.png",
-      "444": "/images/items/jacket.png"
-    };
-    
-    return imageMap[sku] || "/images/items/tshirt.png"; // Default fallback
+  async function handleEndSession(feedback: SessionFeedback) {
+    if (!sessionId) return;
+
+    try {
+      // TODO: Implement end session endpoint in AWS
+      // This should:
+      // 1. Save feedback to DynamoDB
+      // 2. Update session end time
+      // 3. Mark items as purchased/not purchased
+      // 4. Update analytics
+      
+      console.log("Ending session with feedback:", {
+        sessionId,
+        feedback,
+      });
+
+      // Clear session data
+      localStorage.removeItem("sessionId");
+      localStorage.removeItem("sessionStartTime");
+      
+      // Show success notification
+      setNotification({
+        message: "Thank you for your feedback! Your session has ended.",
+        type: "success"
+      });
+
+      // Redirect to welcome screen after a delay
+      setTimeout(() => {
+        router.push("/");
+      }, 2000);
+    } catch (err) {
+      console.error("Failed to end session:", err);
+      setNotification({
+        message: "Failed to submit feedback. Please try again.",
+        type: "error"
+      });
+      throw err; // Re-throw to let modal handle it
+    }
   }
 
-  // Fetch real recommendations from backend
-  async function fetchRecommendations(itemSku: string) {
-    if (!itemSku || loadingRecommendations) return;
+  // Map frontend SKU to backend productId
+  function getProductIdForSku(sku: string): string {
+    // Use SKU directly as productId since ProductCatalog uses SKU as productId
+    return sku;
+  }
+
+
+  // Fetch recommendations from new AWS API
+  async function fetchRecommendations(itemSku: string, category: CategoryFilter = "all") {
+    if (!itemSku || loadingRecommendations || category === "all") return;
     
     setLoadingRecommendations(true);
     try {
-      // Map frontend SKU to backend SKU format
-      const skuMap: { [key: string]: string } = {
-        "111": "119704139_1", // T-shirt
-        "222": "120556789_1", // Shorts
-        "333": "121445678_1", // Sneakers
-        "444": "122334455_1"  // Jacket
-      };
+      const productId = getProductIdForSku(itemSku);
       
-      const backendSku = skuMap[itemSku] || itemSku;
-      
-      const res = await fetch(`${BACKEND_URL}/api/recommendations`, {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "x-session-id": sessionId || "demo"
-        },
-        body: JSON.stringify({
-          baseSku: backendSku,
-          sessionId: sessionId || undefined,
-          targetCategories: ["bottom", "shoes", "outerwear"],
-          topK: 4
-        })
-      });
-
-      if (!res.ok) {
-        console.error("Failed to fetch recommendations");
-        return;
-      }
-
-      const data = await res.json();
-      
-      // Map backend image paths to frontend image URLs
-      if (data.recommendations) {
-        Object.keys(data.recommendations).forEach(category => {
-          data.recommendations[category].forEach((rec: Recommendation) => {
-            // Replace backend image path with frontend image path
-            rec.image = getImageUrlForSku(rec.sku);
-          });
-        });
+      // Use cached session gender or fetch if not available
+      let gender = sessionGender;
+      if (!gender && sessionId) {
+        gender = await VestiaAPI.getSessionGender(sessionId);
+        setSessionGender(gender);
       }
       
-      // Also map base item image
-      if (data.baseItem) {
-        data.baseItem.image = getImageUrlForSku(data.baseItem.sku);
-      }
+      const recommendations = await VestiaAPI.getRecommendations(productId, category, gender || undefined);
       
-      setRecommendations(data);
+      setRecommendations(recommendations);
     } catch (err) {
       console.error("Error fetching recommendations:", err);
+      setRecommendations([]);
     } finally {
       setLoadingRecommendations(false);
+    }
+  }
+
+  // Handle category filter change
+  function handleCategoryFilter(category: CategoryFilter) {
+    setActiveCategory(category);
+    if (category === "all") {
+      setRecommendations([]);
+      return;
+    }
+    
+    if (mainItem) {
+      fetchRecommendations(mainItem.sku, category);
     }
   }
 
   // Get items for display: selected item as main, others as smaller cards
   const mainItem = items.length > 0 && selectedMainIndex >= 0 ? items[selectedMainIndex] : null;
 
-  // Auto-fetch recommendations when main item changes
+  // Auto-fetch recommendations when main item changes (default to "top")
   useEffect(() => {
-    if (items.length > 0 && selectedMainIndex >= 0 && selectedMainIndex < items.length && sessionId) {
+    if (items.length > 0 && selectedMainIndex >= 0 && selectedMainIndex < items.length) {
       const currentMainItem = items[selectedMainIndex];
       if (currentMainItem && currentMainItem.sku) {
-        fetchRecommendations(currentMainItem.sku);
+        // Default to showing "top" recommendations
+        setActiveCategory("top");
+        fetchRecommendations(currentMainItem.sku, "top");
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedMainIndex, sessionId, items.length]);
+  }, [selectedMainIndex, items.length]);
+
+  // Keyboard shortcuts for accessibility
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      // Don't trigger shortcuts when typing in inputs
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+
+      // Ctrl/Cmd + Enter: Scan item (if SKU is entered)
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && sku) {
+        e.preventDefault();
+        handleScan();
+      }
+
+      // Ctrl/Cmd + R: Request size/color for selected item
+      if ((e.ctrlKey || e.metaKey) && e.key === "r" && mainItem) {
+        e.preventDefault();
+        handleRequestSize(mainItem);
+      }
+
+      // Ctrl/Cmd + E: End session
+      if ((e.ctrlKey || e.metaKey) && e.key === "e") {
+        e.preventDefault();
+        setIsEndSessionModalOpen(true);
+      }
+
+      // Arrow keys: Navigate between items (when not in input)
+      if (e.key === "ArrowLeft" && items.length > 0) {
+        e.preventDefault();
+        setSelectedMainIndex((prev) => Math.max(0, prev - 1));
+      }
+      if (e.key === "ArrowRight" && items.length > 0) {
+        e.preventDefault();
+        setSelectedMainIndex((prev) => Math.min(items.length - 1, prev + 1));
+      }
+
+      // Escape: Close modals
+      if (e.key === "Escape") {
+        if (isRequestModalOpen) {
+          setIsRequestModalOpen(false);
+          setSelectedItem(null);
+        }
+        if (isFeedbackModalOpen) {
+          setIsFeedbackModalOpen(false);
+          setSelectedItem(null);
+        }
+        if (isEndSessionModalOpen) {
+          setIsEndSessionModalOpen(false);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyPress);
+    return () => window.removeEventListener("keydown", handleKeyPress);
+  }, [sku, mainItem, items.length, isRequestModalOpen, isFeedbackModalOpen, isEndSessionModalOpen]);
   const previousItems = items.length > 1 
     ? items.filter((_, index) => index !== selectedMainIndex).reverse()
-    : [];
-  
-  // Flatten recommendations from all categories for display
-  const displayRecommendations: Recommendation[] = recommendations 
-    ? Object.values(recommendations.recommendations).flat().slice(0, 4)
     : [];
 
   if (!sessionId) {
@@ -473,271 +521,513 @@ export default function SessionKioskPage() {
 
   return (
     <div className="min-h-screen bg-[#F5E9DA]">
-      {/* Top Bar */}
+      {/* Customer-Facing Top Bar */}
       <div className="bg-[#FDF7EF] border-b border-[#E5D5C8] px-8 py-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-[#3B2A21]">Vestia</h1>
+          <div className="flex items-center gap-4">
+            <div className="relative w-12 h-12">
+              <Image
+                src="/images/Logo.png"
+                alt="Vestia Logo"
+                fill
+                className="object-contain"
+                priority
+              />
+            </div>
+            <h1 className="text-2xl font-bold text-[#3B2A21]">Vestia</h1>
+          </div>
           <div className="flex items-center gap-6 text-[#3B2A21]">
-            <a href="/" className="font-medium hover:underline">Kiosk</a>
-            <a href="/admin" className="font-medium hover:underline">Requests</a>
-            <a href="/analytics" className="font-medium hover:underline">Analytics</a>
-            <span className="font-medium">Room 7</span>
-            {sessionStartTime && <SessionTimer startTime={sessionStartTime} />}
-            <button className="font-medium hover:underline">Log In</button>
+            <div className="flex items-center gap-2 px-4 py-2 bg-white/60 rounded-full border border-[#E5D5C8]">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+              <span className="font-semibold text-sm">Room 7</span>
+            </div>
+            {sessionStartTime && (
+              <div className="px-4 py-2 bg-white/60 rounded-full border border-[#E5D5C8]">
+                <SessionTimer startTime={sessionStartTime} />
+              </div>
+            )}
+            <button 
+              onClick={() => setIsEndSessionModalOpen(true)}
+              className="px-5 py-2.5 bg-red-100 hover:bg-red-200 text-red-700 font-semibold rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-red-300 shadow-sm hover:shadow-md"
+            >
+              End Session
+            </button>
           </div>
         </div>
       </div>
 
       {/* Main Layout */}
-      <div className="flex gap-8 p-8 w-full max-w-none" style={{ height: "calc(100vh - 80px)" }}>
+      <div className="flex gap-4 p-4 w-full max-w-none" style={{ height: "calc(100vh - 80px)" }}>
         {/* Left Column - 55% */}
-        <div className="flex flex-col space-y-4 overflow-hidden" style={{ flexBasis: "55%", width: "55%", maxWidth: "55%" }}>
-          {/* Scan Item Banner - Compact */}
-          <div className="bg-[#FDF7EF] rounded-xl p-4 border border-[#E5D5C8]">
-            <h2 className="text-lg font-semibold text-[#3B2A21] mb-3">Enter SKU</h2>
-            <div className="flex gap-3 mb-3">
-              <input
-                type="text"
-                value={sku}
-                onChange={(e) => setSku(e.target.value)}
-                placeholder="Enter SKU (111, 222, 333, or 444)"
-                className="flex-1 bg-white border border-[#E5D5C8] rounded-md px-3 py-2 text-[#3B2A21] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E] text-sm"
-              />
-              <button
-                onClick={handleScan}
-                className="px-6 py-2 bg-[#4A3A2E] hover:bg-[#3B2A21] text-[#FDF7EF] font-medium rounded-md transition-all text-sm"
-              >
-                Scan Item
-              </button>
-            </div>
-          </div>
-
-          {/* Your Items Section - Maximized */}
-          <div className="flex-1">
-            <h2 className="text-3xl font-semibold text-[#3B2A21] mb-6">Your Items ({items.length})</h2>
-            
-            {items.length === 0 ? (
-              <div className="bg-[#FDF7EF] rounded-2xl p-12 border border-[#E5D5C8] text-center">
-                <div className="w-20 h-20 bg-[#E5D5C8] rounded-full mx-auto mb-4 flex items-center justify-center">
-                  <svg className="w-10 h-10 text-[#3B2A21]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                </div>
-                <p className="text-[#3B2A21] font-medium">No items scanned yet. Scan an item to get started.</p>
+        <div className="relative h-full overflow-hidden" style={{ flexBasis: "55%", width: "55%", maxWidth: "55%" }}>
+          <div className="absolute inset-0 flex flex-col bg-white rounded-2xl border border-[#E5D5C8] shadow-sm">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-[#E5D5C8]/30 flex-shrink-0">
+              <div>
+                <h1 className="text-2xl font-medium text-[#3B2A21]">Your Items</h1>
+                <p className="text-sm text-[#8C6A4B] mt-1">{items.length} item{items.length !== 1 ? 's' : ''} scanned</p>
               </div>
-            ) : (
-              <div className="space-y-6">
-                {/* Main Item Card - Larger */}
-                {mainItem && (
-                  <div className={`bg-[#FDF7EF] rounded-2xl p-8 border border-[#E5D5C8] ${mainItem.delivered ? 'ring-2 ring-green-400' : ''}`}>
-                    {mainItem.delivered && (
-                      <div className="mb-4 flex items-center gap-2 text-green-600">
-                        <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                        <span className="text-sm font-medium">Delivered to your fitting room</span>
-                      </div>
-                    )}
-                    <div className="flex gap-8">
-                      <div className="w-40 h-56 bg-[#E5D5C8] rounded-xl overflow-hidden">
-                        {mainItem.imageUrl ? (
-                          <Image
-                            src={mainItem.imageUrl}
-                            alt={mainItem.name}
-                            width={160}
-                            height={224}
-                            className="w-full h-full object-contain"
-                          />
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setIsEndSessionModalOpen(true)}
+                  className="px-4 py-2 border border-[#E5D5C8] text-[#3B2A21] rounded-xl hover:bg-[#F5E9DA] transition-all duration-200 transform hover:scale-105 active:scale-95"
+                >
+                  End Session
+                </button>
+                <SessionTimer startTime={sessionStartTime} />
+              </div>
+            </div>
+
+            {/* Content Area */}
+            <div className="flex-1 flex flex-col p-4 min-h-0">
+              {items.length === 0 ? (
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="w-20 h-20 bg-[#E5D5C8]/30 rounded-full flex items-center justify-center mx-auto mb-6">
+                      <span className="text-3xl">📱</span>
+                    </div>
+                    <h2 className="text-xl font-medium text-[#3B2A21] mb-2">Ready to scan</h2>
+                    <p className="text-[#8C6A4B] mb-6">Scan the barcode on any item to get started</p>
+                    <div className="flex gap-3 justify-center">
+                      <input
+                        type="text"
+                        value={sku}
+                        onChange={(e) => {
+                          const newSku = e.target.value;
+                          setSku(newSku);
+                          
+                          // Clear any existing debounce timer
+                          if (scanDebounceTimerRef.current) {
+                            clearTimeout(scanDebounceTimerRef.current);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && sku.trim() && !isScanning && !requestInProgressRef.current) {
+                            e.preventDefault();
+                            // Clear debounce timer if user presses Enter
+                            if (scanDebounceTimerRef.current) {
+                              clearTimeout(scanDebounceTimerRef.current);
+                              scanDebounceTimerRef.current = null;
+                            }
+                            handleScan();
+                          }
+                        }}
+                        placeholder="Enter SKU (111, 222, 333, or 444)"
+                        className="px-4 py-3 border border-[#E5D5C8] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#4A3A2E] focus:border-transparent"
+                        autoFocus
+                        disabled={isScanning}
+                      />
+                      <button
+                        onClick={handleScan}
+                        disabled={isScanning || !sku.trim()}
+                        className="px-6 py-3 bg-[#4A3A2E] text-[#FDF7EF] rounded-xl font-medium hover:bg-[#3B2A21] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-md hover:shadow-lg flex items-center gap-2"
+                      >
+                        {isScanning ? (
+                          <>
+                            <LoadingSpinner size="sm" />
+                            <span>Scanning...</span>
+                          </>
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <span className="text-[#3B2A21] text-lg">Image</span>
-                          </div>
+                          "Scan Item"
                         )}
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="text-3xl font-semibold text-[#3B2A21] mb-4">{mainItem.name}</h3>
-                        <div className="flex gap-3 mb-6">
-                          <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">{mainItem.color}</span>
-                          <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">Size {mainItem.size}</span>
-                          <span className="px-4 py-2 bg-[#E5D5C8] text-[#3B2A21] text-base rounded-full">{ITEMS_BY_SKU[mainItem.sku]?.price || "$75"}</span>
-                        </div>
-                        <div className="flex flex-col gap-3">
-                          <button
-                            onClick={() => handleRequestSize(mainItem)}
-                            className="px-6 py-4 bg-[#4A3A2E] text-[#FDF7EF] rounded-xl font-medium hover:bg-[#3B2A21] transition-all text-left"
-                          >
-                            <div className="text-base font-semibold">Request different size/colour for this item</div>
-                            <div className="text-sm opacity-90">Associate will bring your requested size to Room 7.</div>
-                          </button>
-                          <button
-                            onClick={() => handleLeaveFeedback(mainItem)}
-                            className="px-6 py-4 border border-[#4A3A2E] text-[#4A3A2E] rounded-xl font-medium hover:bg-[#4A3A2E] hover:text-[#FDF7EF] transition-all text-left"
-                          >
-                            <div className="text-base font-semibold">☆ Save / Share + Add Notes</div>
-                            <div className="text-sm opacity-90">Your notes help us personalize your experience.</div>
-                          </button>
-                        </div>
-                      </div>
+                      </button>
                     </div>
                   </div>
-                )}
-
-                {/* Previous Items - Scrollable Carousel with Arrows */}
-                {previousItems.length > 0 && (
-                  <div className="relative h-32 w-full max-w-full overflow-hidden">
-                    <div 
-                      className="flex gap-4 overflow-x-auto scrollbar-hide drag-scroll h-full snap-x snap-mandatory"
-                      style={{ scrollBehavior: 'smooth' }}
-                      onMouseDown={(e) => {
-                        const container = e.currentTarget;
-                        const startX = e.pageX - container.offsetLeft;
-                        const scrollLeft = container.scrollLeft;
-                        
-                        const handleMouseMove = (e: MouseEvent) => {
-                          const x = e.pageX - container.offsetLeft;
-                          const walk = (x - startX) * 2;
-                          container.scrollLeft = scrollLeft - walk;
-                        };
-                        
-                        const handleMouseUp = () => {
-                          document.removeEventListener('mousemove', handleMouseMove);
-                          document.removeEventListener('mouseup', handleMouseUp);
-                        };
-                        
-                        document.addEventListener('mousemove', handleMouseMove);
-                        document.addEventListener('mouseup', handleMouseUp);
-                      }}
-                    >
-                      {previousItems.map((item, index) => {
-                        const originalIndex = items.findIndex(i => i === item);
-                        return (
-                          <div 
-                            key={`${item.sku}-${index}`} 
-                            onClick={() => setSelectedMainIndex(originalIndex)}
-                            className="bg-[#FDF7EF] rounded-xl p-4 border border-[#E5D5C8] cursor-pointer hover:bg-[#F5E9DA] transition-all flex-shrink-0 clickable snap-start"
-                            style={{ minWidth: 'calc(50% - 8px)' }}
-                          >
-                            <div className="flex gap-3 h-full">
-                              <div className="w-20 h-24 bg-[#E5D5C8] rounded-lg overflow-hidden flex-shrink-0">
-                                {item.imageUrl ? (
-                                  <Image
-                                    src={item.imageUrl}
-                                    alt={item.name}
-                                    width={80}
-                                    height={96}
-                                    className="w-full h-full object-contain"
-                                  />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center">
-                                    <span className="text-[#3B2A21] text-sm">Img</span>
-                                  </div>
-                                )}
-                              </div>
-                              <div className="flex-1 min-w-0 flex flex-col justify-between">
-                                <div>
-                                  <h4 className="font-semibold text-[#3B2A21] text-base mb-2 truncate">{item.name}</h4>
-                                  <p className="text-[#3B2A21] text-sm mb-2">SKU: {item.sku}</p>
-                                </div>
-                                <div className="flex flex-wrap gap-2">
-                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">{item.color}</span>
-                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">Size {item.size}</span>
-                                  <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-sm rounded-full">{ITEMS_BY_SKU[item.sku]?.price || "$75"}</span>
-                                </div>
-                              </div>
+                </div>
+              ) : (
+                <>
+                  {/* Hero Item Display */}
+                  {mainItem && (
+                    <div className="flex-shrink-0 mb-4">
+                      <div className="bg-gradient-to-br from-[#FDF7EF] to-[#F5E9DA] rounded-2xl p-6 border border-[#E5D5C8]">
+                        <div className="flex gap-6">
+                          <div className="w-52 h-72 bg-white rounded-xl shadow-sm flex items-center justify-center flex-shrink-0 overflow-hidden border border-[#E5D5C8]/30">
+                            {mainItem.product?.imageUrl ? (
+                              <img
+                                src={mainItem.product.imageUrl}
+                                alt={mainItem.product.name || 'Product'}
+                                loading="lazy"
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                  e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                }}
+                              />
+                            ) : null}
+                            <div className={`w-full h-full flex items-center justify-center ${mainItem.product?.imageUrl ? 'hidden' : ''}`}>
+                              <span className="text-[#3B2A21] text-xl">Image</span>
                             </div>
                           </div>
-                        );
-                      })}
+                          <div className="flex-1 flex flex-col justify-between">
+                            <div>
+                              <h3 className="text-3xl font-semibold text-[#3B2A21] mb-3">{mainItem.product?.name || 'Unknown Product'}</h3>
+                              <div className="flex flex-wrap gap-2 mb-4">
+                                <span className="px-4 py-2 bg-white text-[#3B2A21] text-base rounded-full border border-[#E5D5C8]/50 shadow-sm">{mainItem.derivedColor || mainItem.product?.color || 'Unknown Color'}</span>
+                                <span className="px-4 py-2 bg-white text-[#3B2A21] text-base rounded-full border border-[#E5D5C8]/50 shadow-sm">{mainItem.derivedSize ? `Size ${mainItem.derivedSize}` : 'Size N/A'}</span>
+                                <span className="px-4 py-2 bg-white text-[#3B2A21] text-base rounded-full border border-[#E5D5C8]/50 shadow-sm font-medium">${mainItem.product?.price || 75}</span>
+                                {mainItem.isDelivered && (
+                                  <span className="px-4 py-2 bg-emerald-100 text-emerald-700 text-base rounded-full font-medium border border-emerald-200">✓ Delivered</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <button
+                                onClick={() => handleRequestSize(mainItem)}
+                                className="px-6 py-4 bg-[#4A3A2E] text-[#FDF7EF] rounded-xl font-medium hover:bg-[#3B2A21] transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] shadow-md hover:shadow-lg text-left"
+                              >
+                                <div className="text-base font-semibold">Request different size/color</div>
+                                <div className="text-sm opacity-90">Associate will bring to your fitting room</div>
+                              </button>
+                              <button
+                                onClick={() => handleLeaveFeedback(mainItem)}
+                                className="px-6 py-4 border border-[#4A3A2E] text-[#4A3A2E] rounded-xl font-medium hover:bg-[#4A3A2E] hover:text-[#FDF7EF] transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] text-left"
+                              >
+                                <div className="text-base font-semibold">⭐ Save & add notes</div>
+                                <div className="text-sm opacity-90">Help us personalize your experience</div>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Item Timeline - Horizontal Carousel */}
+                  {previousItems.length > 0 && (
+                    <div className="flex-shrink-0">
+                      <h3 className="text-sm font-medium text-[#3B2A21]/80 mb-2 tracking-wide uppercase">Previously Scanned</h3>
+                      <div className="relative">
+                        <div 
+                          className="flex gap-3 overflow-x-auto overflow-y-hidden scrollbar-hide"
+                          style={{ scrollBehavior: 'smooth' }}
+                        >
+                          {previousItems.map((item, index) => {
+                            const originalIndex = items.findIndex(i => i === item);
+                            return (
+                              <div 
+                                key={`${item.sku}-${index}`} 
+                                onClick={() => setSelectedMainIndex(originalIndex)}
+                                className="bg-white rounded-xl p-4 border border-[#E5D5C8] cursor-pointer hover:shadow-md hover:border-[#4A3A2E]/20 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] flex-shrink-0"
+                                style={{ minWidth: '280px', height: '160px' }}
+                              >
+                                <div className="flex gap-4 h-full">
+                                  <div className="w-20 h-full bg-[#E5D5C8] rounded-xl overflow-hidden flex-shrink-0">
+                                    {item.product?.imageUrl ? (
+                                      <img
+                                        src={item.product.imageUrl}
+                                        alt={item.product.name || 'Product'}
+                                        loading="lazy"
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                          e.currentTarget.style.display = 'none';
+                                          e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                        }}
+                                      />
+                                    ) : null}
+                                    <div className={`w-full h-full flex items-center justify-center ${item.product?.imageUrl ? 'hidden' : ''}`}>
+                                      <span className="text-[#3B2A21] text-sm font-medium">IMG</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex-1 min-w-0 flex flex-col justify-between py-1">
+                                    <div className="space-y-2">
+                                      <h4 className="font-semibold text-[#3B2A21] text-base leading-tight truncate">{item.product?.name || 'Unknown Product'}</h4>
+                                      <p className="text-[#8C6A4B] text-sm">
+                                        SKU: {item.sku} 
+                                        {item.isDelivered && <span className="text-emerald-600 font-semibold ml-1">• Delivered</span>}
+                                      </p>
+                                    </div>
+                                    <div className="space-y-2">
+                                      <div className="flex flex-wrap gap-2">
+                                        <span className="px-3 py-1.5 bg-[#E5D5C8] text-[#3B2A21] text-sm font-medium rounded-full">{item.derivedColor || item.product?.color || 'Unknown'}</span>
+                                        <span className="px-3 py-1.5 bg-[#E5D5C8] text-[#3B2A21] text-sm font-medium rounded-full">{item.derivedSize ? `Size ${item.derivedSize}` : 'Size N/A'}</span>
+                                        <span className="px-3 py-1.5 bg-[#E5D5C8] text-[#3B2A21] text-sm font-bold rounded-full">${item.product?.price || 75}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Scan New Item */}
+                  <div className="flex-shrink-0 mt-2 pt-2 border-t border-[#E5D5C8]/30">
+                    <div className="flex gap-3">
+                      <input
+                        type="text"
+                        value={sku}
+                        onChange={(e) => {
+                          const newSku = e.target.value;
+                          setSku(newSku);
+                          
+                          // Clear any existing debounce timer
+                          if (scanDebounceTimerRef.current) {
+                            clearTimeout(scanDebounceTimerRef.current);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && sku.trim() && !isScanning && !requestInProgressRef.current) {
+                            e.preventDefault();
+                            // Clear debounce timer if user presses Enter
+                            if (scanDebounceTimerRef.current) {
+                              clearTimeout(scanDebounceTimerRef.current);
+                              scanDebounceTimerRef.current = null;
+                            }
+                            handleScan();
+                          }
+                        }}
+                        placeholder="Scan or enter SKU"
+                        className="flex-1 px-4 py-3 border border-[#E5D5C8] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#4A3A2E] focus:border-transparent"
+                        autoFocus
+                        disabled={isScanning}
+                      />
+                      <button
+                        onClick={handleScan}
+                        disabled={isScanning || !sku.trim()}
+                        className="px-6 py-3 bg-[#4A3A2E] text-[#FDF7EF] rounded-xl font-medium hover:bg-[#3B2A21] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-md hover:shadow-lg flex items-center gap-2"
+                      >
+                        {isScanning ? (
+                          <>
+                            <LoadingSpinner size="sm" />
+                            <span>Scanning...</span>
+                          </>
+                        ) : (
+                          "Add Item"
+                        )}
+                      </button>
                     </div>
                   </div>
-                )}
-              </div>
-            )}
+                </>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Right Column - 45% */}
         <div className="relative h-full overflow-hidden" style={{ flexBasis: "45%", width: "45%", maxWidth: "45%" }}>
-          <div className="absolute inset-0 flex flex-col bg-[#FDF7EF] rounded-2xl border border-[#E5D5C8] p-6">
-            <div className="flex items-center justify-between mb-6 flex-shrink-0">
-              <h2 className="text-3xl font-semibold text-[#3B2A21]">Recommended for this item</h2>
-              {recommendations?.customerPersonalized && (
-                <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full">Personalized</span>
-              )}
+          <div className="absolute inset-0 flex flex-col bg-[#FDF7EF] rounded-2xl border border-[#E5D5C8] p-4">
+            <div className="flex items-center justify-between mb-4 flex-shrink-0">
+              <h2 className="text-2xl font-medium text-[#3B2A21]">Complete Your Look</h2>
             </div>
             
-            {loadingRecommendations ? (
-              <div className="flex-1 flex items-center justify-center">
-                <p className="text-[#3B2A21]">Loading recommendations...</p>
+            {/* Category Filter Pills - More Subtle */}
+            {mainItem && (
+              <div className="flex gap-2 mb-4 flex-shrink-0">
+                {(["top", "bottom", "shoes", "accessory"] as const).map((category) => (
+                  <button
+                    key={category}
+                    onClick={() => handleCategoryFilter(category)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 ${
+                      activeCategory === category
+                        ? "bg-[#4A3A2E] text-[#FDF7EF] shadow-lg"
+                        : "bg-white/60 text-[#3B2A21] border border-[#E5D5C8]/50 hover:bg-white hover:shadow-md"
+                    }`}
+                  >
+                    {category === "accessory" 
+                      ? "Accessories" 
+                      : category === "shoes"
+                      ? "Shoes"
+                      : category.charAt(0).toUpperCase() + category.slice(1) + "s"}
+                  </button>
+                ))}
               </div>
-            ) : displayRecommendations.length === 0 ? (
+            )}
+            
+            {!mainItem ? (
               <div className="flex-1 flex items-center justify-center">
-                <p className="text-[#3B2A21]">Scan an item to see outfit recommendations</p>
+                <div className="text-center">
+                  <div className="w-16 h-16 bg-[#E5D5C8]/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <span className="text-2xl">👕</span>
+                  </div>
+                  <p className="text-[#3B2A21]/70 text-lg">Scan an item to discover your perfect look</p>
+                </div>
+              </div>
+            ) : loadingRecommendations ? (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-center">
+                  <div className="w-8 h-8 border-2 border-[#4A3A2E]/20 border-t-[#4A3A2E] rounded-full animate-spin mx-auto mb-4"></div>
+                  <p className="text-[#3B2A21]/70">Curating recommendations...</p>
+                </div>
+              </div>
+            ) : activeCategory === "all" ? (
+              <div className="flex-1 flex items-center justify-center">
+                <p className="text-[#3B2A21]/70">Select a category to see recommendations</p>
+              </div>
+            ) : recommendations.length === 0 ? (
+              <div className="flex-1 flex items-center justify-center">
+                <p className="text-[#3B2A21]/70">No recommendations found for {activeCategory}</p>
               </div>
             ) : (
-              <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-4 overflow-y-auto">
-                {displayRecommendations.map((rec) => {
-                  // Always use the mapped image URL (backend paths don't exist)
-                  const imageUrl = getImageUrlForSku(rec.sku);
-                  
-                  return (
-                    <div key={rec.sku} className="bg-white rounded-xl p-4 border border-[#E5D5C8] flex flex-col">
-                      <div className="flex gap-3 flex-1">
-                        <div className="w-20 h-20 bg-[#E5D5C8] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
-                          {imageUrl ? (
-                            <Image
-                              src={imageUrl}
-                              alt={rec.name}
-                              width={80}
-                              height={80}
-                              className="w-full h-full object-contain"
+              <div className="flex-1 flex flex-col gap-6 overflow-y-auto premium-scroll pr-2">
+                {/* Perfect Match - Hero Card */}
+                {recommendations[0] && (
+                  <div className="flex-shrink-0">
+                    <h3 className="text-sm font-medium text-[#3B2A21]/80 mb-3 tracking-wide uppercase">Perfect Match</h3>
+                    <div className="bg-white rounded-2xl p-6 border border-[#E5D5C8] shadow-sm hover:shadow-lg transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]">
+                      <div className="flex gap-4">
+                        <div className="w-24 h-24 bg-[#E5D5C8] rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
+                          {recommendations[0].imageUrl ? (
+                            <img
+                              src={recommendations[0].imageUrl}
+                              alt={recommendations[0].name}
+                              loading="lazy"
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                                e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                              }}
                             />
-                          ) : (
-                            <span className="text-[#3B2A21] text-xs">Img</span>
-                          )}
+                          ) : null}
+                          <div className={`w-full h-full flex items-center justify-center ${recommendations[0].imageUrl ? 'hidden' : ''}`}>
+                            <span className="text-[#3B2A21] text-sm">IMG</span>
+                          </div>
                         </div>
                         <div className="flex-1 min-w-0 flex flex-col">
-                          <h4 className="font-medium text-[#3B2A21] text-sm mb-2 truncate">{rec.name}</h4>
-                          <div className="text-xs text-[#8C6A4B] mb-2">{rec.brand} • ${rec.price}</div>
-                          <div className="flex flex-col gap-1 flex-1 mb-2">
-                            <span className="px-2 py-1 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full w-fit">{rec.color}</span>
-                            {rec.score > 0 && (
-                              <span className="text-xs text-emerald-600 font-semibold">
-                                Match: {Math.round(rec.score * 100)}%
+                          <h4 className="font-semibold text-[#3B2A21] text-base mb-1">{recommendations[0].name}</h4>
+                          <div className="text-sm text-[#8C6A4B] mb-3">${recommendations[0].price}</div>
+                          <div className="flex items-center gap-2 mb-4">
+                            <span className="px-3 py-1 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full">{recommendations[0].color}</span>
+                            {recommendations[0].score > 0 && (
+                              <span className="text-xs text-emerald-600 font-semibold bg-emerald-50 px-2 py-1 rounded-full">
+                                {Math.round(recommendations[0].score * 100)}% Match
                               </span>
                             )}
                           </div>
-                          
-                          {/* Explanations */}
-                          {rec.explanations && rec.explanations.length > 0 && (
-                            <details className="text-xs mb-2">
-                              <summary className="text-[#8C6A4B] cursor-pointer hover:text-[#3B2A21]">
-                                Why this works
-                              </summary>
-                              <ul className="mt-1 space-y-1 text-[#6F4F33] list-disc list-inside">
-                                {rec.explanations.slice(0, 2).map((exp, idx) => (
-                                  <li key={idx} className="text-xs">{exp}</li>
-                                ))}
-                              </ul>
-                            </details>
-                          )}
-                          
-                          <div className="flex flex-col gap-2 mt-auto">
-                            <button 
-                              onClick={() => handleRequestSize({
-                                sku: rec.sku,
-                                name: rec.name,
-                                color: rec.color,
-                                size: "M"
-                              })}
-                              className="text-xs border border-[#4A3A2E] text-[#4A3A2E] rounded-md py-1 hover:bg-[#4A3A2E] hover:text-[#FDF7EF] transition-all"
-                            >
-                              Request
-                            </button>
-                          </div>
+                          <button 
+                            onClick={() => handleRequestSize({
+                              sku: recommendations[0].productId,
+                              entityType: 'SCAN' as const,
+                              sessionId: sessionId || 'demo_session',
+                              createdAt: new Date().toISOString(),
+                              product: {
+                                productId: recommendations[0].productId,
+                                name: recommendations[0].name,
+                                color: recommendations[0].color,
+                                category: recommendations[0].category,
+                                price: recommendations[0].price,
+                                articleType: recommendations[0].articleType,
+                                gender: 'unisex'
+                              }
+                            })}
+                            className="bg-[#4A3A2E] text-[#FDF7EF] rounded-xl py-2 px-4 text-sm font-medium hover:bg-[#3B2A21] transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-md hover:shadow-lg"
+                          >
+                            Request This Item
+                          </button>
                         </div>
                       </div>
                     </div>
-                  );
-                })}
+                  </div>
+                )}
+
+                {/* Complete the Look - 2 Items */}
+                {recommendations.length > 1 && (
+                  <div className="flex-shrink-0">
+                    <h3 className="text-sm font-medium text-[#3B2A21]/80 mb-3 tracking-wide uppercase">Complete the Look</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      {recommendations.slice(1, 3).map((rec) => (
+                        <div key={rec.productId} className="bg-white rounded-xl p-4 border border-[#E5D5C8] hover:shadow-md transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]">
+                          <div className="w-16 h-16 bg-[#E5D5C8] rounded-lg flex items-center justify-center mx-auto mb-3 overflow-hidden">
+                            {rec.imageUrl ? (
+                              <img
+                                src={rec.imageUrl}
+                                alt={rec.name}
+                                loading="lazy"
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                  e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                }}
+                              />
+                            ) : null}
+                            <div className={`w-full h-full flex items-center justify-center ${rec.imageUrl ? 'hidden' : ''}`}>
+                              <span className="text-[#3B2A21] text-xs">IMG</span>
+                            </div>
+                          </div>
+                          <h4 className="font-medium text-[#3B2A21] text-sm mb-1 text-center truncate">{rec.name}</h4>
+                          <div className="text-xs text-[#8C6A4B] text-center mb-2">${rec.price}</div>
+                          <div className="flex justify-center mb-3">
+                            <span className="px-2 py-1 bg-[#E5D5C8] text-[#3B2A21] text-xs rounded-full">{rec.color}</span>
+                          </div>
+                          <button 
+                            onClick={() => handleRequestSize({
+                              sku: rec.productId,
+                              entityType: 'SCAN' as const,
+                              sessionId: sessionId || 'demo_session',
+                              createdAt: new Date().toISOString(),
+                              product: {
+                                productId: rec.productId,
+                                name: rec.name,
+                                color: rec.color,
+                                category: rec.category,
+                                price: rec.price,
+                                articleType: rec.articleType,
+                                gender: 'unisex'
+                              }
+                            })}
+                            className="w-full text-xs border border-[#4A3A2E] text-[#4A3A2E] rounded-lg py-2 hover:bg-[#4A3A2E] hover:text-[#FDF7EF] transition-all duration-200 transform hover:scale-105 active:scale-95"
+                          >
+                            Request
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* You Might Also Like - Remaining Items */}
+                {recommendations.length > 3 && (
+                  <div className="flex-1 min-h-0">
+                    <h3 className="text-sm font-medium text-[#3B2A21]/80 mb-3 tracking-wide uppercase">You Might Also Like</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      {recommendations.slice(3, 5).map((rec) => (
+                        <div key={rec.productId} className="bg-white rounded-xl p-3 border border-[#E5D5C8] hover:shadow-md transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]">
+                          <div className="w-12 h-12 bg-[#E5D5C8] rounded-lg flex items-center justify-center mx-auto mb-2 overflow-hidden">
+                            {rec.imageUrl ? (
+                              <img
+                                src={rec.imageUrl}
+                                alt={rec.name}
+                                loading="lazy"
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                  e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                }}
+                              />
+                            ) : null}
+                            <div className={`w-full h-full flex items-center justify-center ${rec.imageUrl ? 'hidden' : ''}`}>
+                              <span className="text-[#3B2A21] text-xs">IMG</span>
+                            </div>
+                          </div>
+                          <h4 className="font-medium text-[#3B2A21] text-xs mb-1 text-center truncate">{rec.name}</h4>
+                          <div className="text-xs text-[#8C6A4B] text-center mb-2">${rec.price}</div>
+                          <button 
+                            onClick={() => handleRequestSize({
+                              sku: rec.productId,
+                              entityType: 'SCAN' as const,
+                              sessionId: sessionId || 'demo_session',
+                              createdAt: new Date().toISOString(),
+                              product: {
+                                productId: rec.productId,
+                                name: rec.name,
+                                color: rec.color,
+                                category: rec.category,
+                                price: rec.price,
+                                articleType: rec.articleType,
+                                gender: 'unisex'
+                              }
+                            })}
+                            className="w-full text-xs border border-[#4A3A2E] text-[#4A3A2E] rounded-lg py-1.5 hover:bg-[#4A3A2E] hover:text-[#FDF7EF] transition-all duration-200 transform hover:scale-105 active:scale-95"
+                          >
+                            Request
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -748,8 +1038,10 @@ export default function SessionKioskPage() {
       <Modal
         isOpen={isRequestModalOpen}
         onClose={() => {
-          setIsRequestModalOpen(false);
-          setSelectedItem(null);
+          if (!isSubmittingRequest) {
+            setIsRequestModalOpen(false);
+            setSelectedItem(null);
+          }
         }}
         title="Request Different Size or Color"
       >
@@ -757,9 +1049,9 @@ export default function SessionKioskPage() {
           <div className="space-y-4">
             <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
               <p className="text-sm text-gray-600 mb-1">Current Item</p>
-              <p className="font-medium text-gray-900">{selectedItem.name}</p>
+              <p className="font-medium text-gray-900">{selectedItem.product?.name || 'Unknown Product'}</p>
               <p className="text-sm text-gray-600">
-                {selectedItem.color} • Size {selectedItem.size}
+                {selectedItem.derivedColor || selectedItem.product?.color || 'Unknown'} • {selectedItem.derivedSize ? `Size ${selectedItem.derivedSize}` : 'Size N/A'}
               </p>
             </div>
             <div>
@@ -802,18 +1094,29 @@ export default function SessionKioskPage() {
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => {
-                  setIsRequestModalOpen(false);
-                  setSelectedItem(null);
+                  if (!isSubmittingRequest) {
+                    setIsRequestModalOpen(false);
+                    setSelectedItem(null);
+                  }
                 }}
-                className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-all duration-200"
+                disabled={isSubmittingRequest}
+                className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed text-gray-700 font-medium rounded-lg transition-all duration-200"
               >
                 Cancel
               </button>
               <button
                 onClick={submitRequest}
-                className="flex-1 px-4 py-2.5 bg-[#0066CC] hover:bg-[#0052A3] text-white font-semibold rounded-lg transition-all duration-200"
+                disabled={isSubmittingRequest}
+                className="flex-1 px-4 py-2.5 bg-[#0066CC] hover:bg-[#0052A3] disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-2"
               >
-                Send Request
+                {isSubmittingRequest ? (
+                  <>
+                    <LoadingSpinner size="sm" />
+                    <span>Sending...</span>
+                  </>
+                ) : (
+                  "Send Request"
+                )}
               </button>
             </div>
           </div>
@@ -876,6 +1179,21 @@ export default function SessionKioskPage() {
           </div>
         </div>
       </Modal>
+
+      {/* End Session Modal */}
+      <EndSessionModal
+        isOpen={isEndSessionModalOpen}
+        onClose={() => setIsEndSessionModalOpen(false)}
+        onEndSession={handleEndSession}
+        items={items.map(item => ({
+          sku: item.sku,
+          product: item.product ? {
+            name: item.product.name,
+            productId: item.product.productId,
+          } : undefined,
+        }))}
+        sessionId={sessionId || ""}
+      />
 
       {/* Notification */}
       {notification && (

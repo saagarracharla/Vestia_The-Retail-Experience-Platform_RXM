@@ -30,6 +30,23 @@ body {
   display: none;
 }
 
+/* Premium Scrollbar for Recommendations */
+.premium-scroll::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.premium-scroll::-webkit-scrollbar-track {
+  background: rgba(229, 213, 200, 0.3);
+  border-radius: 2px;
+}
+.premium-scroll::-webkit-scrollbar-thumb {
+  background: rgba(74, 58, 46, 0.4);
+  border-radius: 2px;
+}
+.premium-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(74, 58, 46, 0.6);
+}
+
 /* Drag Scroll Utility */
 .drag-scroll {
   cursor: grab;
@@ -43,6 +60,32 @@ body {
 }
 .drag-scroll .clickable {
   pointer-events: auto;
+}
+
+/* Premium Touch Interactions */
+.premium-card {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.premium-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(74, 58, 46, 0.15);
+}
+.premium-card:active {
+  transform: translateY(0px);
+  box-shadow: 0 4px 15px rgba(74, 58, 46, 0.1);
+}
+
+/* Premium Button Interactions */
+.premium-button {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.premium-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 15px rgba(74, 58, 46, 0.25);
+}
+.premium-button:active {
+  transform: translateY(0px);
+  box-shadow: 0 2px 8px rgba(74, 58, 46, 0.15);
 }
 
 /* Welcome Screen Animations */
