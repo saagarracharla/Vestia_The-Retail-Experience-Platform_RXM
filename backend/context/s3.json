@@ -1,0 +1,23 @@
+{
+    "Buckets": [
+        {
+            "Name": "clickstream-data-saagar-125667709386",
+            "CreationDate": "2026-01-05T23:22:34+00:00",
+            "BucketArn": "arn:aws:s3:::clickstream-data-saagar-125667709386"
+        },
+        {
+            "Name": "vestia-product-data-ca",
+            "CreationDate": "2025-12-26T21:18:35+00:00",
+            "BucketArn": "arn:aws:s3:::vestia-product-data-ca"
+        },
+        {
+            "Name": "vestia-product-images",
+            "CreationDate": "2025-12-28T22:20:17+00:00",
+            "BucketArn": "arn:aws:s3:::vestia-product-images"
+        }
+    ],
+    "Owner": {
+        "ID": "6fa059648f1374885aea94a662f7431d1c5d783b8c952dd982dd5aa802cc4c96"
+    },
+    "Prefix": null
+}

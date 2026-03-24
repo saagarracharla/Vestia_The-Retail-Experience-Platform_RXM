@@ -1,0 +1,111 @@
+{
+    "Table": {
+        "AttributeDefinitions": [
+            {
+                "AttributeName": "acticleType",
+                "AttributeType": "S"
+            },
+            {
+                "AttributeName": "baseColour",
+                "AttributeType": "S"
+            },
+            {
+                "AttributeName": "category",
+                "AttributeType": "S"
+            },
+            {
+                "AttributeName": "productId",
+                "AttributeType": "S"
+            }
+        ],
+        "TableName": "ProductCatalog",
+        "KeySchema": [
+            {
+                "AttributeName": "productId",
+                "KeyType": "HASH"
+            }
+        ],
+        "TableStatus": "ACTIVE",
+        "CreationDateTime": "2025-12-28T16:21:24.459000-05:00",
+        "ProvisionedThroughput": {
+            "NumberOfDecreasesToday": 0,
+            "ReadCapacityUnits": 0,
+            "WriteCapacityUnits": 0
+        },
+        "TableSizeBytes": 5683964,
+        "ItemCount": 44426,
+        "TableArn": "arn:aws:dynamodb:ca-central-1:125667709386:table/ProductCatalog",
+        "TableId": "3d7b704e-1724-4697-ac8e-abb2f51d218d",
+        "BillingModeSummary": {
+            "BillingMode": "PAY_PER_REQUEST",
+            "LastUpdateToPayPerRequestDateTime": "2025-12-28T16:21:24.459000-05:00"
+        },
+        "GlobalSecondaryIndexes": [
+            {
+                "IndexName": "articleType-index",
+                "KeySchema": [
+                    {
+                        "AttributeName": "acticleType",
+                        "KeyType": "HASH"
+                    },
+                    {
+                        "AttributeName": "baseColour",
+                        "KeyType": "RANGE"
+                    }
+                ],
+                "Projection": {
+                    "ProjectionType": "ALL"
+                },
+                "IndexStatus": "ACTIVE",
+                "ProvisionedThroughput": {
+                    "NumberOfDecreasesToday": 0,
+                    "ReadCapacityUnits": 0,
+                    "WriteCapacityUnits": 0
+                },
+                "IndexSizeBytes": 0,
+                "ItemCount": 0,
+                "IndexArn": "arn:aws:dynamodb:ca-central-1:125667709386:table/ProductCatalog/index/articleType-index",
+                "WarmThroughput": {
+                    "ReadUnitsPerSecond": 12000,
+                    "WriteUnitsPerSecond": 4000,
+                    "Status": "ACTIVE"
+                }
+            },
+            {
+                "IndexName": "category-index",
+                "KeySchema": [
+                    {
+                        "AttributeName": "category",
+                        "KeyType": "HASH"
+                    }
+                ],
+                "Projection": {
+                    "ProjectionType": "ALL"
+                },
+                "IndexStatus": "ACTIVE",
+                "ProvisionedThroughput": {
+                    "NumberOfDecreasesToday": 0,
+                    "ReadCapacityUnits": 0,
+                    "WriteCapacityUnits": 0
+                },
+                "IndexSizeBytes": 5683964,
+                "ItemCount": 44426,
+                "IndexArn": "arn:aws:dynamodb:ca-central-1:125667709386:table/ProductCatalog/index/category-index",
+                "WarmThroughput": {
+                    "ReadUnitsPerSecond": 12000,
+                    "WriteUnitsPerSecond": 4000,
+                    "Status": "ACTIVE"
+                }
+            }
+        ],
+        "TableClassSummary": {
+            "TableClass": "STANDARD"
+        },
+        "DeletionProtectionEnabled": false,
+        "WarmThroughput": {
+            "ReadUnitsPerSecond": 12000,
+            "WriteUnitsPerSecond": 4000,
+            "Status": "ACTIVE"
+        }
+    }
+}
