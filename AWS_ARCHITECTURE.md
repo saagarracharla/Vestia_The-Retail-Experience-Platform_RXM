@@ -1,360 +1,284 @@
-# 🏗️ Vestia AWS Architecture Overview
+# Vestia — AWS Architecture
 
-## Complete AWS Infrastructure
-
-## 🌐 API Gateway
-
-**Base URL**: `https://993toyh3x5.execute-api.ca-central-1.amazonaws.com`  
-**Region**: `ca-central-1` (Canada Central)
-
-### Endpoints
-
-#### Session Management
-- `POST /session/scan` → `vestia-session-scan` Lambda
-- `GET /session/{sessionId}` → `vestia-session-get` Lambda
-
-#### Request Lifecycle
-- `POST /request` → `vestia-request-post` Lambda
-- `PATCH /request/{requestId}` → `vestia-request-update` Lambda
-- `PATCH /request/{requestId}/claim` → `vestia-request-claim` Lambda
-- `GET /store/{storeId}/request` → `vestia-request-get` Lambda
-
-#### Product Catalog
-- `GET /product/{sku}` → `vestia-product-get` Lambda
-- `POST /recommend` → `vestia-recommend` Lambda
+**Region**: `ca-central-1`
+**Account**: `125667709386`
+**API Gateway Base URL**: `https://993toyh3x5.execute-api.ca-central-1.amazonaws.com`
 
 ---
 
-## 🗄️ DynamoDB Tables
+## API Endpoints
 
-### 1. **VestiaSessions** (Event-Sourced Architecture)
+| Method | Path | Lambda | Description |
+|--------|------|--------|-------------|
+| POST | `/session/scan` | `vestia-session-scan` | Record item scan |
+| GET | `/session/{sessionId}` | `vestia-session-get` | Fetch session events |
+| POST | `/session/feedback` | `vestia-session-feedback` | Submit in-session feedback |
+| POST | `/session/preferences` | `vestia-session-preferences` | Save size/colour/style preferences |
+| POST | `/request` | `vestia-request-post` | Create staff request (double-write) |
+| PATCH | `/request/{requestId}` | `vestia-request-update` | Update request status |
+| PATCH | `/request/{requestId}/claim` | `vestia-request-claim` | Staff claims a request |
+| GET | `/store/{storeId}/request` | `vestia-request-get` | Fetch all store requests |
+| GET | `/product/{sku}` | `vestia-product-get` | Fetch product metadata |
+| POST | `/recommend` | `vestia-recommend` | Get outfit recommendations |
+| GET | `/analytics` | `vestia-analytics-get` | Store analytics (supports `?days=7|30|90`) |
+| GET | `/customer/{customerId}` | `vestia-customer-profile` | Fetch customer profile + derivedStyle |
+| PUT | `/customer/{customerId}` | `vestia-customer-profile` | Create or update customer profile |
+| POST | `/outfit` | `vestia-outfit` | Save an outfit, returns `{ outfitId, shareCode }` |
+| GET | `/outfit/{shareCode}` | `vestia-outfit` | Fetch a saved outfit by share code |
 
-**Table Name**: `VestiaSessions`  
-**Region**: `ca-central-1`
+---
 
-#### Data Model (Composite Key Pattern)
+## DynamoDB Tables
 
-**Partition Key (PK) Patterns**:
-- `SESSION#{sessionId}` - Customer kiosk view
-- `STORE#{storeId}` - Staff dashboard view
+### VestiaSessions
 
-**Sort Key (SK) Patterns**:
-- `SCAN#{timestamp}` - Product scans (ISO timestamp)
-- `REQUEST#{requestId}` - Product requests
+Event-sourced single table storing all session activity.
 
-#### Entity Types
+**Partition Key**: `PK` (string)
+**Sort Key**: `SK` (string)
 
-**SCAN Events**:
+#### Access Patterns
+
+| PK | SK | Used By |
+|----|-----|---------|
+| `SESSION#{sessionId}` | `SCAN#{timestamp}` | Kiosk item list |
+| `SESSION#{sessionId}` | `REQUEST#{requestId}` | Kiosk request status |
+| `SESSION#{sessionId}` | `FEEDBACK#{timestamp}` | Recommendation engine |
+| `SESSION#{sessionId}` | `PREF#{timestamp}` | Recommendation engine |
+| `STORE#{storeId}` | `REQUEST#{requestId}` | Staff dashboard |
+| `OUTFIT#{shareCode}` | `META` | Saved outfit (Save & Share) |
+
+#### Entity Schemas
+
+**SCAN**
 ```json
 {
-  "PK": "SESSION#session-id",
-  "SK": "SCAN#2025-12-28T12:00:00Z",
+  "PK": "SESSION#abc123",
+  "SK": "SCAN#2026-03-24T12:00:00Z",
   "entityType": "SCAN",
-  "sessionId": "session-id",
-  "sku": "15970",
-  "kioskId": "KIOSK-001",
-  "source": "kiosk|staff",
-  "createdAt": "2025-12-28T12:00:00Z"
+  "sessionId": "abc123",
+  "sku": "15479",
+  "kioskId": "kiosk-1",
+  "source": "kiosk | staff",
+  "createdAt": "2026-03-24T12:00:00Z"
 }
 ```
 
-**REQUEST Events**:
+**REQUEST** (written to both `SESSION#` and `STORE#` partitions)
 ```json
 {
-  "PK": "SESSION#session-id" | "STORE#store-id",
-  "SK": "REQUEST#request-id",
+  "PK": "SESSION#abc123",
+  "SK": "REQUEST#REQ-1234567890-abc",
   "entityType": "REQUEST",
-  "requestId": "REQ-123456",
-  "sessionId": "session-id",
+  "requestId": "REQ-1234567890-abc",
+  "sessionId": "abc123",
   "storeId": "STORE-001",
-  "kioskId": "KIOSK-001",
-  "sku": "15970",
-  "requestType": "size_change|color_change|size_color_change",
-  "requestedSize": "XL",
-  "requestedColor": "Red",
-  "status": "QUEUED|CLAIMED|DELIVERED|CANCELLED",
-  "createdAt": "2025-12-28T12:00:00Z",
-  "updatedAt": "2025-12-28T12:05:00Z",
-  "employeeId": "EMP-001" // (optional, when claimed)
+  "kioskId": "kiosk-1",
+  "sku": "15479",
+  "requestType": "size_change | color_change | size_color_change | general",
+  "requestedSize": "L",
+  "requestedColor": null,
+  "status": "QUEUED | CLAIMED | DELIVERED | CANCELLED",
+  "createdAt": "2026-03-24T12:00:00Z",
+  "updatedAt": "2026-03-24T12:05:00Z"
 }
 ```
 
-### 2. **ProductCatalog** (Single Source of Truth)
-
-**Table Name**: `ProductCatalog` (referenced in Lambda code)  
-**Region**: `ca-central-1`
-
-**Structure**:
+**FEEDBACK**
 ```json
 {
-  "productId": "15970",
-  "name": "Turtle Check Men Shirt",
-  "category": "top",
-  "articleType": "Shirts",
-  "color": "blue",
-  "price": 40,
-  "gender": "men",
-  "season": "Fall",
-  "usage": "Casual"
+  "PK": "SESSION#abc123",
+  "SK": "FEEDBACK#2026-03-24T12:02:00Z",
+  "entityType": "FEEDBACK",
+  "sessionId": "abc123",
+  "itemFeedback": [
+    { "sku": "15479", "liked": true, "preferredColor": "black" }
+  ]
 }
 ```
 
-### 3. **VestiaProducts** (Legacy/Alternative)
-
-**Table Name**: `VestiaProducts`  
-**Used for**: Product ingestion from S3  
-**Structure**: Uses `PK: PRODUCT#{sku}`, `SK: META`
-
-### 4. **CompatibilityStats** (Recommendation Engine)
-
-**Table Name**: `CompatibilityStats`  
-**Used for**: ML recommendation scoring  
-**Purpose**: Stores article type and color compatibility statistics
-
----
-
-## ⚡ Lambda Functions
-
-**Runtime**: Node.js 24.x  
-**Region**: `ca-central-1`
-
-### Session Management
-
-#### 1. **vestia-session-scan**
-- **Purpose**: Records item scans with kioskId tracking
-- **Trigger**: `POST /session/scan`
-- **Operations**: 
-  - `PutCommand` to `VestiaSessions` table
-  - Creates `SCAN` event with timestamp as SK
-- **Input**: `{ sessionId, sku, kioskId }`
-- **Output**: `{ message: "Item scanned", item }`
-
-#### 2. **vestia-session-get**
-- **Purpose**: Retrieves normalized session events
-- **Trigger**: `GET /session/{sessionId}`
-- **Operations**:
-  - `QueryCommand` on `VestiaSessions` table
-  - Queries by `PK = SESSION#{sessionId}`
-- **Output**: `{ sessionId, items: [...] }`
-
-#### 3. **vestia-session-handler**
-- **Status**: Placeholder (not implemented)
-- **Current**: Returns "Hello from Lambda!"
-
-### Request Lifecycle
-
-#### 4. **vestia-request-post**
-- **Purpose**: Creates customer requests (derives kioskId from session)
-- **Trigger**: `POST /request`
-- **Operations**:
-  - `PutCommand` creates **dual records**:
-    - `SESSION#{sessionId}` record (for kiosk)
-    - `STORE#{storeId}` record (for staff)
-- **Features**:
-  - Generates unique `requestId` (REQ-XXXXXX format)
-  - Sets initial status to "QUEUED"
-- **Input**: `{ sessionId, storeId, sku, requestedSize?, requestedColor? }`
-- **Output**: `{ requestId, status: "QUEUED" }`
-
-#### 5. **vestia-request-update**
-- **Purpose**: Staff actions (QUEUED → CLAIMED → DELIVERED)
-- **Trigger**: `PATCH /request/{requestId}`
-- **Operations**:
-  - `UpdateCommand` updates **both** store and session records
-  - `PutCommand` auto-creates SCAN when status = "DELIVERED"
-- **Special Feature**: Auto-scan on delivery
-  - When `status === "DELIVERED"`, automatically creates a new `SCAN` event
-  - This makes delivered items appear in customer session automatically
-- **Input**: `{ requestId, storeId, sessionId, status, employeeId? }`
-- **Output**: `{ requestId, status, updatedAt }`
-
-#### 6. **vestia-request-claim**
-- **Purpose**: Staff pickup functionality
-- **Trigger**: `PATCH /request/{requestId}/claim`
-- **Operations**:
-  - Validates request is in "QUEUED" status
-  - Updates status to "CLAIMED"
-  - Records `employeeId` and claim timestamp
-- **Input**: `{ requestId, storeId, sessionId, employeeId }`
-- **Output**: `{ requestId, status: "CLAIMED" }`
-
-#### 7. **vestia-request-get**
-- **Purpose**: Admin dashboard data feed
-- **Trigger**: `GET /store/{storeId}/request`
-- **Operations**:
-  - `QueryCommand` on `VestiaSessions` table
-  - Queries by `PK = STORE#{storeId}`
-- **Output**: `{ requests: [...] }`
-
-### Intelligence Layer
-
-#### 8. **vestia-recommend**
-- **Purpose**: Enhanced ML-style recommendation engine
-- **Trigger**: `POST /recommend`
-- **Environment Variables**:
-  - `PRODUCT_TABLE`: "ProductCatalog"
-  - `COMPAT_TABLE`: "CompatibilityStats"
-- **Operations**:
-  - `GetCommand` retrieves base product
-  - `GetCommand` retrieves compatibility scores
-  - `ScanCommand` finds candidate products
-- **Scoring Algorithm**:
-  - Article Type Compatibility
-  - Color Compatibility
-  - Combined scoring with decimal precision
-- **Input**: `{ productId, targetCategory, gender? }`
-- **Output**: `[{ productId, name, category, score, ... }]` (top 5)
-
----
-
-## 📦 S3 Buckets
-
-### 1. **vestia-product-images**
-- **Bucket**: `vestia-product-images`
-- **Region**: `ca-central-1`
-- **Access**: Public Read
-- **URL Pattern**: `https://vestia-product-images.s3.ca-central-1.amazonaws.com/{sku}.jpg`
-- **Purpose**: Product image storage
-- **Examples**:
-  - `15970.jpg` → Turtle Check Men Shirt image
-  - `4831.jpg` → Track pants image
-
-### 2. **vestia-raw-datasets**
-- **Bucket**: `vestia-raw-datasets`
-- **Key**: `urstyle/fashion_products.json`
-- **Purpose**: Raw product data for ingestion
-- **Ingestion**: Python script (`ingest_products.py`) loads into DynamoDB
-
----
-
-## 🔐 IAM Roles & Permissions
-
-### Lambda Execution Roles
-
-#### **Vestia-session-scan**
-- **Permissions**: 
-  - `dynamodb:GetItem`
-  - `dynamodb:PutItem`
-  - `dynamodb:UpdateItem`
-  - `dynamodb:Query`
-- **Resource**: `arn:aws:dynamodb:ca-central-1:125667709386:table/VestiaSessions`
-
-#### **Vestia-session-handler**
-- Similar DynamoDB permissions
-
----
-
-## 🔄 Data Flow
-
-### Customer Scanning Flow
-```
-Kiosk → POST /session/scan → vestia-session-scan Lambda
-  → DynamoDB PutCommand → VestiaSessions (SCAN event)
-  → Frontend polls GET /session/{sessionId}
-  → vestia-session-get Lambda → QueryCommand
-  → Frontend joins with ProductCatalog
-```
-
-### Request Lifecycle Flow
-```
-Customer → POST /request → vestia-request-post Lambda
-  → Creates dual records (SESSION + STORE)
-  → Staff sees in admin dashboard
-  → Staff clicks "Picked Up" → PATCH /request/{requestId}
-  → vestia-request-update Lambda → Updates to CLAIMED
-  → Staff clicks "Delivered" → PATCH /request/{requestId}
-  → vestia-request-update Lambda → Updates to DELIVERED
-  → Auto-creates SCAN event
-  → Customer sees item in session (via polling)
-```
-
-### Recommendation Flow
-```
-Customer selects item → POST /recommend
-  → vestia-recommend Lambda
-  → Queries ProductCatalog + CompatibilityStats
-  → Scores candidates
-  → Returns top 5 recommendations
-  → Frontend displays with images from S3
+**PREF**
+```json
+{
+  "PK": "SESSION#abc123",
+  "SK": "PREF#2026-03-24T12:01:00Z",
+  "sessionId": "abc123",
+  "preferredSizes": { "top": "M", "bottom": "32" },
+  "preferredColors": ["black", "navy"],
+  "preferredStyles": ["casual"]
+}
 ```
 
 ---
 
-## 📊 Architecture Patterns
+### ProductCatalog
 
-### 1. **Event Sourcing**
-- All events stored as immutable records
-- SCAN and REQUEST events have timestamps
-- Full audit trail for analytics
+44,446 products from the Myntra dataset, enriched with S3 JSON attributes.
 
-### 2. **Dual Record Pattern**
-- Requests stored in both `SESSION#{sessionId}` and `STORE#{storeId}`
-- Enables efficient queries for both kiosk and staff views
-- Updates synchronized across both records
+**Primary Key**: `productId` (string)
 
-### 3. **Normalized Data Model**
-- `VestiaSessions`: Event log (no product duplication)
-- `ProductCatalog`: Single source of truth for product metadata
-- Frontend joins data in-memory for UI rendering
+```json
+{
+  "productId": "15479",
+  "name": "Puma Men Black T-shirt",
+  "category": "top",
+  "articleType": "Tshirts",
+  "color": "black",
+  "price": 799,
+  "gender": "men",
+  "usage": "Sports",
+  "season": "Summer",
+  "pattern": "Solid",
+  "fit": "Regular",
+  "fabric": "Cotton",
+  "occasion": "Casual",
+  "baseColour": "Black",
+  "availableSizes": ["S", "M", "L", "XL"],
+  "sleeveLength": "Short Sleeve"
+}
+```
 
-### 4. **Auto-Scan on Delivery**
-- When request status → "DELIVERED"
-- Lambda automatically creates SCAN event
-- Item appears in customer session without manual scan
-
----
-
-## 🛠️ Infrastructure Components
-
-### Frontend Integration
-- **API Client**: `VestiaAPI` class in `frontend/src/lib/api.ts`
-- **Base URL**: `https://993toyh3x5.execute-api.ca-central-1.amazonaws.com`
-- **Image URL**: `https://vestia-product-images.s3.ca-central-1.amazonaws.com/{sku}.jpg`
-
-### Data Ingestion
-- **Script**: `AWS/S3ToDynamoDB/ingest_products.py`
-- **Process**: S3 → DynamoDB (VestiaProducts table)
-- **Normalization**: Layer → category, color normalization
+> `pattern`, `fit`, `fabric`, `occasion`, `baseColour`, `availableSizes`, `sleeveLength` were added by `backend/scripts/enrich-catalog-from-s3.py` reading 44,446 S3 JSONs from `vestia-product-data-ca/raw/myntra/json/{productId}.json`.
 
 ---
 
-## 📈 Scalability Features
+### CompatibilityStats
 
-1. **DynamoDB**: Auto-scaling, pay-per-request
-2. **Lambda**: Serverless, scales automatically
-3. **API Gateway**: Handles high traffic
-4. **S3**: Unlimited storage for product images
-5. **Multi-kiosk Support**: kioskId tracking enables store-wide deployment
+Pre-computed fashion compatibility scores used by the recommendation engine. 1,062+ entries.
 
----
+**Primary Key**: `PK` (string)
+**Sort Key**: `SK` (string)
+**Attribute**: `score` (number, 0.0–1.0)
 
-## 🔍 Key Features
+#### Entry Types
 
-✅ **Event-sourced architecture** (audit trail, analytics-ready)  
-✅ **Multi-kiosk deployment** (scales to entire store)  
-✅ **Staff workflow integration** (seamless request fulfillment)  
-✅ **Real-time customer experience** (live delivery updates via polling)  
-✅ **Intelligent recommendations** (ML-style scoring algorithm)  
-✅ **Performance optimized** (normalized data, efficient queries)  
-✅ **Image support** (S3-hosted product images)  
-✅ **Gender-aware** (consistent recommendation filtering)
+| PK Format | SK Format | Example |
+|-----------|-----------|---------|
+| `COLOR#black` | `COLOR#navy` | Black pairs with navy: 0.85 |
+| `ARTICLE#tshirts` | `ARTICLE#jeans` | T-shirts pair with jeans: 0.90 |
+| `USAGE#sports` | `USAGE#sports` | Same usage: 0.95 |
+| `PATTERN#solid` | `PATTERN#striped` | Solid top + striped bottom: 0.85 |
+| `FABRIC#cotton` | `FABRIC#denim` | Cotton + denim: 0.80 |
+| `FIT#regular` | `FIT#slim` | Regular + slim: 0.75 |
 
 ---
 
-## 📝 Summary
+### CustomerProfiles
 
-**Total AWS Services Used**:
-- ✅ API Gateway (REST API)
-- ✅ Lambda (8 functions)
-- ✅ DynamoDB (4+ tables)
-- ✅ S3 (2 buckets)
-- ✅ IAM (Lambda execution roles)
+Loyalty customer data with purchase history and derived style insights.
 
-**Region**: `ca-central-1` (Canada Central)  
-**Account ID**: `125667709386` (from IAM ARN)
+**Primary Key**: `customerId` (string, email address)
+
+```json
+{
+  "customerId": "demo@vestia.com",
+  "gender": "men",
+  "preferredSizes": { "top": "M", "bottom": "32", "shoes": "10" },
+  "preferredColors": ["black", "navy"],
+  "preferredStyles": ["casual"],
+  "purchaseHistory": [
+    {
+      "productId": "15479",
+      "name": "Puma Men Black T-shirt",
+      "articleType": "Tshirts",
+      "color": "black",
+      "price": 799,
+      "purchasedAt": "2025-12-15T10:00:00Z"
+    }
+  ],
+  "visitCount": 3,
+  "lastVisitAt": "2026-03-24T20:00:00Z",
+  "createdAt": "2025-11-01T00:00:00Z",
+  "updatedAt": "2026-03-24T20:00:00Z"
+}
+```
+
+> `derivedStyle` is **not stored** — it is computed on every GET by `deriveStyle()` in the Lambda and returned in the response:
+> ```json
+> { "topColors": ["black","navy"], "topArticles": ["tshirts","jeans"], "avgPrice": 1200, "dominantStyle": "casual" }
+> ```
 
 ---
 
-**Last Updated**: December 2024  
-**Status**: Production-ready AWS infrastructure
+## Lambda Functions
 
+**Runtime**: Node.js 22.x (ESM)
+**IAM Role**: `vestia-shared-lambda-role` with `VestiaDynamoDBAccess` policy
+
+| Function | Trigger | Tables Accessed |
+|----------|---------|-----------------|
+| `vestia-session-scan` | POST /session/scan | VestiaSessions (write) |
+| `vestia-session-get` | GET /session/{id} | VestiaSessions (read) |
+| `vestia-session-feedback` | POST /session/feedback | VestiaSessions (write) |
+| `vestia-session-preferences` | POST /session/preferences | VestiaSessions (write) |
+| `vestia-request-post` | POST /request | VestiaSessions (double-write) |
+| `vestia-request-update` | PATCH /request/{id} | VestiaSessions (update + optional scan write) |
+| `vestia-request-claim` | PATCH /request/{id}/claim | VestiaSessions (update) |
+| `vestia-request-get` | GET /store/{id}/request | VestiaSessions (read STORE# partition) |
+| `vestia-product-get` | GET /product/{sku} | ProductCatalog (read) |
+| `vestia-recommend` | POST /recommend | ProductCatalog, CompatibilityStats, VestiaSessions, CustomerProfiles |
+| `vestia-analytics-get` | GET /analytics | VestiaSessions (read SESSION# partition) |
+| `vestia-customer-profile` | GET+PUT /customer/{id} | CustomerProfiles |
+
+> `vestia-session-handler` and `vestia-storeMetrics` are unused placeholders.
+
+---
+
+## Recommendation Algorithm
+
+`vestia-recommend` implements a full weighted scoring pipeline:
+
+```
+POST /recommend { productId, targetCategory, gender?, sessionId?, customerId?, sessionPreferences? }
+```
+
+### Scoring Weights
+
+| Signal | Weight | Source |
+|--------|--------|--------|
+| Article type compatibility | 25% | CompatibilityStats `ARTICLE#` |
+| Colour compatibility | 20% | CompatibilityStats `COLOR#` |
+| Pattern compatibility | 15% | CompatibilityStats `PATTERN#` (S3-enriched) |
+| Historical co-scan affinity | 15% | VestiaSessions 30-day window |
+| Fabric compatibility | 10% | CompatibilityStats `FABRIC#` (S3-enriched) |
+| Price proximity | 8% | ProductCatalog price field |
+| Customer preferences | 5% | CustomerProfiles + session PREF events |
+| In-session feedback | 2% | VestiaSessions FEEDBACK events |
+
+### Pipeline Steps
+
+1. Fetch base product from `ProductCatalog`
+2. Fetch 6 CompatibilityStats in parallel (COLOR, ARTICLE, USAGE, PATTERN, FABRIC, FIT)
+3. Read session SCAN events → exclude already-scanned SKUs
+4. Read session FEEDBACK events → build live feedback signals
+5. Read session PREF events → merge with inline `sessionPreferences`
+6. Full-table scan `VestiaSessions` (30-day) → compute co-scan affinity map
+7. Load `CustomerProfiles` if `customerId` provided → merge `derivedStyle`
+8. Scan `ProductCatalog` filtered by gender
+9. Filter by target category (top / bottom / shoes / accessory)
+10. Score all candidates using weighted formula
+11. Diversity re-rank: max 1 per article type, max 2 per colour in top-5
+12. Return top-5 per category
+
+---
+
+## S3 Buckets
+
+| Bucket | Purpose |
+|--------|---------|
+| `vestia-product-images` | 44k product images at `full/{sku}.jpg` |
+| `vestia-product-data-ca` | Raw Myntra JSONs at `raw/myntra/json/{productId}.json` |
+
+---
+
+## Key Design Patterns
+
+**Event Sourcing** — `VestiaSessions` stores immutable timestamped events. No state is mutated; history is always queryable.
+
+**Dual-Write for Dual Read Patterns** — REQUEST events are written to both `SESSION#{id}` (kiosk view) and `STORE#{id}` (staff view) simultaneously. Updates touch both copies.
+
+**Auto-Scan on Delivery** — when a REQUEST is marked DELIVERED, `vestia-request-update` automatically creates a new `SCAN` event with `source: "staff"`, making the delivered item appear in the customer's session without a manual re-scan.
+
+**S3 Pre-enrichment** — rather than fetching S3 JSONs at query time (too slow at 44k products), `backend/scripts/enrich-catalog-from-s3.py` ran once to write all rich attributes into `ProductCatalog`. The Lambda reads enriched DynamoDB attributes directly at recommendation time.
+
+**Co-Scan Affinity (Live)** — co-occurrence is computed live from `VestiaSessions` on every recommendation request (30-day rolling window). No separate co-occurrence table; the event log is the source of truth.

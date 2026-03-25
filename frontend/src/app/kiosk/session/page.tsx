@@ -8,7 +8,7 @@ import SessionTimer from "@/components/SessionTimer";
 import Notification from "@/components/Notification";
 import EndSessionModal, { SessionFeedback } from "@/components/EndSessionModal";
 import LoadingSpinner from "@/components/LoadingSpinner";
-import { VestiaAPI, RecommendationItem, ItemWithProduct } from "@/lib/api";
+import { VestiaAPI, RecommendationItem, ItemWithProduct, SessionPreferences, CustomerProfile, OutfitResult, SavedOutfitItem } from "@/lib/api";
 
 type Item = ItemWithProduct;
 
@@ -62,6 +62,36 @@ export default function SessionKioskPage() {
   const [recommendations, setRecommendations] = useState<RecommendationItem[]>([]);
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
   const [activeCategory, setActiveCategory] = useState<CategoryFilter>("all");
+
+  // Customer profile + session preferences
+  const [customerId, setCustomerId] = useState<string | null>(null);
+  const [customerProfile, setCustomerProfile] = useState<CustomerProfile | null>(null);
+  const [sessionPreferences, setSessionPreferences] = useState<SessionPreferences | null>(null);
+
+  // Preferences popup (shown after first scan if no preferences set)
+  const [isPrefsModalOpen, setIsPrefsModalOpen] = useState(false);
+  const prefShownRef = useRef(false);
+
+  // Customer login popup (optional — customer can enter phone/email)
+  const [isCustomerLoginOpen, setIsCustomerLoginOpen] = useState(false);
+  const [customerIdInput, setCustomerIdInput] = useState("");
+
+  // Pref form state
+  const [prefTopSize, setPrefTopSize] = useState("");
+  const [prefBottomSize, setPrefBottomSize] = useState("");
+  const [prefShoesSize, setPrefShoesSize] = useState("");
+  const [prefColors, setPrefColors] = useState<string[]>([]);
+  const [prefStyles, setPrefStyles] = useState<string[]>([]);
+
+  // Mix & Match state
+  const [mixMatchMode, setMixMatchMode] = useState(false);
+  const [outfitSelections, setOutfitSelections] = useState<Set<string>>(new Set());
+  const [outfitResult, setOutfitResult] = useState<OutfitResult | null>(null);
+  const [loadingOutfit, setLoadingOutfit] = useState(false);
+
+  // Save & Share state
+  const [savingOutfit, setSavingOutfit] = useState(false);
+  const [savedShareCode, setSavedShareCode] = useState<string | null>(null);
 
   // Cleanup debounce timer on unmount
   useEffect(() => {
@@ -213,6 +243,12 @@ export default function SessionKioskPage() {
       setMessage("Item scanned successfully!");
       setMessageType("success");
       setSku("");
+
+      // Show preferences popup on first scan (once per session)
+      if (!prefShownRef.current && !sessionPreferences) {
+        prefShownRef.current = true;
+        setTimeout(() => setIsPrefsModalOpen(true), 600);
+      }
       
       // Remove from deduplication set after 2 seconds (allow re-scanning after delay)
       setTimeout(() => {
@@ -329,12 +365,10 @@ export default function SessionKioskPage() {
 
     setMessage("");
     try {
-      // TODO: Implement feedback endpoint in AWS
-      // For now, just show success message
-      console.log("Feedback submitted:", {
-        sessionId,
-        rating: Number(feedbackRating),
-        comment: feedbackComment,
+      await VestiaAPI.submitSessionFeedback(sessionId, {
+        overallRating: Number(feedbackRating),
+        overallComment: feedbackComment || undefined,
+        itemFeedback: selectedItem ? [{ sku: selectedItem.sku, rating: Number(feedbackRating), comment: feedbackComment }] : [],
       });
 
       setMessage("Thank you for your feedback!");
@@ -354,16 +388,13 @@ export default function SessionKioskPage() {
     if (!sessionId) return;
 
     try {
-      // TODO: Implement end session endpoint in AWS
-      // This should:
-      // 1. Save feedback to DynamoDB
-      // 2. Update session end time
-      // 3. Mark items as purchased/not purchased
-      // 4. Update analytics
-      
-      console.log("Ending session with feedback:", {
-        sessionId,
-        feedback,
+      await VestiaAPI.submitSessionFeedback(sessionId, {
+        overallRating: feedback.overallRating,
+        overallComment: feedback.overallComment,
+        itemFeedback: feedback.itemFeedback,
+        experienceRating: feedback.experienceRating,
+        experienceComment: feedback.experienceComment,
+        wouldReturn: feedback.wouldReturn,
       });
 
       // Clear session data
@@ -390,6 +421,168 @@ export default function SessionKioskPage() {
     }
   }
 
+  async function handleSavePreferences() {
+    const prefs: SessionPreferences = {
+      preferredSizes: {
+        ...(prefTopSize    ? { top:    prefTopSize    } : {}),
+        ...(prefBottomSize ? { bottom: prefBottomSize } : {}),
+        ...(prefShoesSize  ? { shoes:  prefShoesSize  } : {}),
+      },
+      preferredColors: prefColors,
+      preferredStyles: prefStyles,
+    };
+    setSessionPreferences(prefs);
+    setIsPrefsModalOpen(false);
+
+    if (sessionId) {
+      try { await VestiaAPI.saveSessionPreferences(sessionId, prefs); } catch { /* non-critical */ }
+    }
+
+    // If customer is logged in, persist to their profile too
+    if (customerId) {
+      try { await VestiaAPI.upsertCustomerProfile(customerId, { preferredSizes: prefs.preferredSizes, preferredColors: prefs.preferredColors, preferredStyles: prefs.preferredStyles }); } catch { /* non-critical */ }
+    }
+
+    // Re-fetch recommendations with new prefs for the currently selected item
+    if (mainItem) fetchRecommendations(mainItem.sku, activeCategory === "all" ? "bottom" : activeCategory);
+  }
+
+  async function handleCustomerLogin() {
+    if (!customerIdInput.trim()) return;
+    const id = customerIdInput.trim();
+    try {
+      const profile = await VestiaAPI.getCustomerProfile(id);
+      if (profile) {
+        setCustomerId(id);
+        setCustomerProfile(profile);
+        // Pre-fill pref form from profile (including history-derived colours)
+        if (profile.preferredSizes) {
+          setPrefTopSize(profile.preferredSizes.top || "");
+          setPrefBottomSize(profile.preferredSizes.bottom || "");
+          setPrefShoesSize(profile.preferredSizes.shoes || "");
+        }
+        const allColors = [
+          ...(profile.preferredColors || []),
+          ...(profile.derivedStyle?.topColors || []),
+        ].filter((c, i, a) => a.indexOf(c) === i);
+        if (allColors.length) setPrefColors(allColors);
+        if (profile.preferredStyles?.length) setPrefStyles(profile.preferredStyles);
+        await VestiaAPI.upsertCustomerProfile(id, { incrementVisit: true });
+      } else {
+        await VestiaAPI.upsertCustomerProfile(id, { incrementVisit: true });
+        setCustomerId(id);
+      }
+    } catch { /* non-critical */ }
+    // Re-fetch recommendations with customer profile data
+    if (mainItem) {
+      setTimeout(() => fetchRecommendations(mainItem.sku, activeCategory === "all" ? "bottom" : activeCategory), 300);
+    }
+    setIsCustomerLoginOpen(false);
+    setCustomerIdInput("");
+  }
+
+  function togglePrefColor(color: string) {
+    setPrefColors(prev => prev.includes(color) ? prev.filter(c => c !== color) : [...prev, color]);
+  }
+
+  function togglePrefStyle(style: string) {
+    setPrefStyles(prev => prev.includes(style) ? prev.filter(s => s !== style) : [...prev, style]);
+  }
+
+  // ── Mix & Match ────────────────────────────────────────────────────────────
+
+  function enterMixMatchMode() {
+    setMixMatchMode(true);
+    setOutfitResult(null);
+    // Pre-select the currently displayed item
+    setOutfitSelections(mainItem ? new Set([mainItem.sku]) : new Set());
+  }
+
+  function exitMixMatchMode() {
+    setMixMatchMode(false);
+    setOutfitResult(null);
+    setOutfitSelections(new Set());
+  }
+
+  function toggleOutfitSelection(sku: string) {
+    setOutfitSelections(prev => {
+      const next = new Set(prev);
+      if (next.has(sku)) next.delete(sku); else next.add(sku);
+      return next;
+    });
+  }
+
+  async function handleBuildOutfit() {
+    if (outfitSelections.size === 0) return;
+    setLoadingOutfit(true);
+    try {
+      const result = await VestiaAPI.getOutfitRecommendations(
+        Array.from(outfitSelections),
+        sessionId || undefined,
+        customerId || undefined,
+        sessionPreferences || undefined
+      );
+      setOutfitResult(result);
+    } catch (err) {
+      console.error("Failed to build outfit:", err);
+    } finally {
+      setLoadingOutfit(false);
+    }
+  }
+
+  async function handleSaveOutfit() {
+    if (!outfitResult) return;
+    setSavingOutfit(true);
+    try {
+      const outfitItems: SavedOutfitItem[] = [];
+
+      // In-room items (already scanned)
+      for (const sku of outfitSelections) {
+        const item = items.find(i => i.sku === sku);
+        if (item?.product) {
+          outfitItems.push({
+            productId: item.sku,
+            name: item.product.name,
+            category: item.product.category,
+            color: item.product.color,
+            price: item.product.price,
+            imageUrl: item.product.imageUrl,
+            source: "room",
+          });
+        }
+      }
+
+      // AI-recommended completions (top pick per missing category)
+      for (const [, recs] of Object.entries(outfitResult.outfit)) {
+        const rec = recs[0];
+        if (!rec) continue;
+        const alreadyCovered = outfitItems.some(i => i.category === rec.category);
+        if (!alreadyCovered) {
+          outfitItems.push({
+            productId: rec.productId,
+            name: rec.name,
+            category: rec.category,
+            color: rec.color,
+            price: rec.price,
+            imageUrl: rec.imageUrl,
+            source: "recommended",
+          });
+        }
+      }
+
+      const { shareCode } = await VestiaAPI.saveOutfit({
+        sessionId: sessionId || undefined,
+        customerId: customerId || undefined,
+        items: outfitItems,
+      });
+      setSavedShareCode(shareCode);
+    } catch (err) {
+      console.error("Failed to save outfit:", err);
+    } finally {
+      setSavingOutfit(false);
+    }
+  }
+
   // Map frontend SKU to backend productId
   function getProductIdForSku(sku: string): string {
     // Use SKU directly as productId since ProductCatalog uses SKU as productId
@@ -412,7 +605,14 @@ export default function SessionKioskPage() {
         setSessionGender(gender);
       }
       
-      const recommendations = await VestiaAPI.getRecommendations(productId, category, gender || undefined);
+      const recommendations = await VestiaAPI.getRecommendations(
+        productId,
+        category,
+        gender || undefined,
+        sessionId || undefined,
+        customerId || undefined,
+        sessionPreferences || undefined
+      );
       
       setRecommendations(recommendations);
     } catch (err) {
@@ -546,7 +746,14 @@ export default function SessionKioskPage() {
                 <SessionTimer startTime={sessionStartTime} />
               </div>
             )}
-            <button 
+            {/* Preferences indicator / trigger */}
+            <button
+              onClick={() => setIsPrefsModalOpen(true)}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all border ${sessionPreferences || customerId ? "bg-[#4A3A2E] text-white border-[#4A3A2E]" : "bg-white/60 border-[#E5D5C8] text-[#3B2A21] hover:bg-white"}`}
+            >
+              {customerId ? `Hi, ${customerId.split("@")[0]}` : sessionPreferences ? "Preferences set" : "My Preferences"}
+            </button>
+            <button
               onClick={() => setIsEndSessionModalOpen(true)}
               className="px-5 py-2.5 bg-red-100 hover:bg-red-200 text-red-700 font-semibold rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-red-300 shadow-sm hover:shadow-md"
             >
@@ -564,16 +771,40 @@ export default function SessionKioskPage() {
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-[#E5D5C8]/30 flex-shrink-0">
               <div>
-                <h1 className="text-2xl font-medium text-[#3B2A21]">Your Items</h1>
-                <p className="text-sm text-[#8C6A4B] mt-1">{items.length} item{items.length !== 1 ? 's' : ''} scanned</p>
+                <h1 className="text-2xl font-medium text-[#3B2A21]">
+                  {mixMatchMode ? "Build Your Outfit" : "Your Items"}
+                </h1>
+                <p className="text-sm text-[#8C6A4B] mt-1">
+                  {mixMatchMode
+                    ? `${outfitSelections.size} item${outfitSelections.size !== 1 ? "s" : ""} selected — tap to include`
+                    : `${items.length} item${items.length !== 1 ? "s" : ""} scanned`}
+                </p>
               </div>
               <div className="flex gap-3">
-                <button
-                  onClick={() => setIsEndSessionModalOpen(true)}
-                  className="px-4 py-2 border border-[#E5D5C8] text-[#3B2A21] rounded-xl hover:bg-[#F5E9DA] transition-all duration-200 transform hover:scale-105 active:scale-95"
-                >
-                  End Session
-                </button>
+                {items.length >= 1 && !mixMatchMode && (
+                  <button
+                    onClick={enterMixMatchMode}
+                    className="px-4 py-2 bg-[#F5E9DA] border border-[#4A3A2E]/30 text-[#4A3A2E] rounded-xl font-medium text-sm hover:bg-[#EDD9C8] transition-all duration-200"
+                  >
+                    Mix & Match
+                  </button>
+                )}
+                {mixMatchMode && (
+                  <button
+                    onClick={exitMixMatchMode}
+                    className="px-4 py-2 border border-[#E5D5C8] text-[#3B2A21] rounded-xl text-sm hover:bg-[#F5E9DA] transition-all duration-200"
+                  >
+                    Cancel
+                  </button>
+                )}
+                {!mixMatchMode && (
+                  <button
+                    onClick={() => setIsEndSessionModalOpen(true)}
+                    className="px-4 py-2 border border-[#E5D5C8] text-[#3B2A21] rounded-xl hover:bg-[#F5E9DA] transition-all duration-200 transform hover:scale-105 active:scale-95"
+                  >
+                    End Session
+                  </button>
+                )}
                 <SessionTimer startTime={sessionStartTime} />
               </div>
             </div>
@@ -639,7 +870,15 @@ export default function SessionKioskPage() {
                   {/* Hero Item Display */}
                   {mainItem && (
                     <div className="flex-shrink-0 mb-4">
-                      <div className="bg-gradient-to-br from-[#FDF7EF] to-[#F5E9DA] rounded-2xl p-6 border border-[#E5D5C8]">
+                      <div
+                        className={`relative bg-gradient-to-br from-[#FDF7EF] to-[#F5E9DA] rounded-2xl p-6 border-2 transition-all duration-200 ${mixMatchMode ? "cursor-pointer " + (outfitSelections.has(mainItem.sku) ? "border-[#4A3A2E] shadow-md" : "border-[#E5D5C8] hover:border-[#4A3A2E]/40") : "border-[#E5D5C8]"}`}
+                        onClick={() => mixMatchMode && toggleOutfitSelection(mainItem.sku)}
+                      >
+                        {mixMatchMode && (
+                          <div className={`absolute top-3 right-3 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${outfitSelections.has(mainItem.sku) ? "bg-[#4A3A2E] border-[#4A3A2E]" : "bg-white border-[#C0A898]"}`}>
+                            {outfitSelections.has(mainItem.sku) && <span className="text-white text-xs font-bold">✓</span>}
+                          </div>
+                        )}
                         <div className="flex gap-6">
                           <div className="w-52 h-72 bg-white rounded-xl shadow-sm flex items-center justify-center flex-shrink-0 overflow-hidden border border-[#E5D5C8]/30">
                             {mainItem.product?.imageUrl ? (
@@ -689,6 +928,11 @@ export default function SessionKioskPage() {
                           </div>
                         </div>
                       </div>
+                      {mixMatchMode && (
+                        <p className="text-xs text-center text-[#8C6A4B] mt-2">
+                          {outfitSelections.has(mainItem.sku) ? "Selected for outfit" : "Tap to add to outfit"}
+                        </p>
+                      )}
                     </div>
                   )}
 
@@ -703,13 +947,19 @@ export default function SessionKioskPage() {
                         >
                           {previousItems.map((item, index) => {
                             const originalIndex = items.findIndex(i => i === item);
+                            const isSelectedForOutfit = outfitSelections.has(item.sku);
                             return (
-                              <div 
-                                key={`${item.sku}-${index}`} 
-                                onClick={() => setSelectedMainIndex(originalIndex)}
-                                className="bg-white rounded-xl p-4 border border-[#E5D5C8] cursor-pointer hover:shadow-md hover:border-[#4A3A2E]/20 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] flex-shrink-0"
+                              <div
+                                key={`${item.sku}-${index}`}
+                                onClick={() => mixMatchMode ? toggleOutfitSelection(item.sku) : setSelectedMainIndex(originalIndex)}
+                                className={`relative bg-white rounded-xl p-4 border-2 cursor-pointer transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] flex-shrink-0 ${mixMatchMode ? (isSelectedForOutfit ? "border-[#4A3A2E] shadow-md" : "border-[#E5D5C8] hover:border-[#4A3A2E]/40") : "border-[#E5D5C8] hover:shadow-md hover:border-[#4A3A2E]/20"}`}
                                 style={{ minWidth: '280px', height: '160px' }}
                               >
+                                {mixMatchMode && (
+                                  <div className={`absolute top-2 right-2 w-5 h-5 rounded-full border-2 flex items-center justify-center z-10 ${isSelectedForOutfit ? "bg-[#4A3A2E] border-[#4A3A2E]" : "bg-white border-[#C0A898]"}`}>
+                                    {isSelectedForOutfit && <span className="text-white text-xs font-bold">✓</span>}
+                                  </div>
+                                )}
                                 <div className="flex gap-4 h-full">
                                   <div className="w-20 h-full bg-[#E5D5C8] rounded-xl overflow-hidden flex-shrink-0">
                                     {item.product?.imageUrl ? (
@@ -809,10 +1059,163 @@ export default function SessionKioskPage() {
         {/* Right Column - 45% */}
         <div className="relative h-full overflow-hidden" style={{ flexBasis: "45%", width: "45%", maxWidth: "45%" }}>
           <div className="absolute inset-0 flex flex-col bg-[#FDF7EF] rounded-2xl border border-[#E5D5C8] p-4">
+
+            {/* ── Mix & Match Outfit Board ───────────────────────────────── */}
+            {mixMatchMode ? (
+              <>
+                <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                  <div>
+                    <h2 className="text-2xl font-medium text-[#3B2A21]">
+                      {outfitResult ? "Your Outfit" : "Select Items"}
+                    </h2>
+                    <p className="text-sm text-[#8C6A4B]">
+                      {outfitResult ? "AI-curated complete look" : `${outfitSelections.size} item${outfitSelections.size !== 1 ? "s" : ""} selected`}
+                    </p>
+                  </div>
+                </div>
+
+                {!outfitResult && !loadingOutfit ? (
+                  <div className="flex-1 flex flex-col">
+                    <p className="text-sm text-[#8C6A4B] mb-4">
+                      Tap items on the left to include them in your outfit. We&apos;ll find what&apos;s missing.
+                    </p>
+                    <div className="flex-1" />
+                    <button
+                      onClick={handleBuildOutfit}
+                      disabled={outfitSelections.size === 0}
+                      className="w-full py-4 bg-[#4A3A2E] text-white rounded-xl font-semibold text-lg hover:bg-[#3B2A21] disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md"
+                    >
+                      Build Outfit
+                    </button>
+                  </div>
+                ) : loadingOutfit ? (
+                  <div className="flex-1 flex items-center justify-center">
+                    <div className="text-center">
+                      <div className="w-8 h-8 border-2 border-[#4A3A2E]/20 border-t-[#4A3A2E] rounded-full animate-spin mx-auto mb-4"></div>
+                      <p className="text-[#3B2A21]/70">Building your perfect outfit...</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex-1 overflow-y-auto premium-scroll flex flex-col gap-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      {(["top", "bottom", "shoes", "accessory"] as const).map(cat => {
+                        const inRoomItem = items.find(item =>
+                          outfitSelections.has(item.sku) &&
+                          (item.product?.category || "").toLowerCase() === cat
+                        );
+                        const recommended = outfitResult?.outfit?.[cat]?.[0];
+                        const catLabel = cat === "accessory" ? "Accessory" : cat.charAt(0).toUpperCase() + cat.slice(1);
+
+                        if (inRoomItem) {
+                          return (
+                            <div key={cat} className="bg-white rounded-xl border-2 border-emerald-400 p-3 flex flex-col">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-semibold text-[#3B2A21]/50 uppercase tracking-wide">{catLabel}</span>
+                                <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">In Room</span>
+                              </div>
+                              <div className="w-full h-24 bg-[#E5D5C8] rounded-lg overflow-hidden mb-2">
+                                {inRoomItem.product?.imageUrl && (
+                                  <img src={inRoomItem.product.imageUrl} alt={inRoomItem.product.name || ""} className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = "none"; }} />
+                                )}
+                              </div>
+                              <p className="text-xs font-medium text-[#3B2A21] truncate">{inRoomItem.product?.name || "Unknown"}</p>
+                              <p className="text-xs text-[#8C6A4B]">${inRoomItem.product?.price || ""}</p>
+                            </div>
+                          );
+                        }
+
+                        if (recommended) {
+                          return (
+                            <div key={cat} className="bg-white rounded-xl border border-[#E5D5C8] p-3 flex flex-col">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-semibold text-[#3B2A21]/50 uppercase tracking-wide">{catLabel}</span>
+                                {recommended.score > 0 && (
+                                  <span className="text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full font-medium">{Math.round(recommended.score * 100)}%</span>
+                                )}
+                              </div>
+                              <div className="w-full h-24 bg-[#E5D5C8] rounded-lg overflow-hidden mb-2">
+                                {recommended.imageUrl && (
+                                  <img src={recommended.imageUrl} alt={recommended.name} loading="lazy" className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = "none"; }} />
+                                )}
+                              </div>
+                              <p className="text-xs font-medium text-[#3B2A21] truncate mb-0.5">{recommended.name}</p>
+                              <p className="text-xs text-[#8C6A4B] mb-2">${recommended.price}</p>
+                              <button
+                                onClick={() => handleRequestSize({
+                                  sku: recommended.productId,
+                                  entityType: "SCAN" as const,
+                                  sessionId: sessionId || "demo_session",
+                                  createdAt: new Date().toISOString(),
+                                  product: { productId: recommended.productId, name: recommended.name, color: recommended.color, category: recommended.category, price: recommended.price, articleType: recommended.articleType, gender: "unisex" }
+                                })}
+                                className="w-full text-xs border border-[#4A3A2E] text-[#4A3A2E] rounded-lg py-1.5 hover:bg-[#4A3A2E] hover:text-[#FDF7EF] transition-all"
+                              >
+                                Request
+                              </button>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div key={cat} className="bg-[#F5E9DA]/60 rounded-xl border border-dashed border-[#E5D5C8] p-3 flex flex-col items-center justify-center min-h-40">
+                            <span className="text-xs font-semibold text-[#3B2A21]/30 uppercase tracking-wide">{catLabel}</span>
+                            <span className="text-xs text-[#8C6A4B]/50 mt-1">Not found</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* Save & Share */}
+                    {!savedShareCode ? (
+                      <button
+                        onClick={handleSaveOutfit}
+                        disabled={savingOutfit}
+                        className="w-full mt-2 py-3 bg-[#4A3A2E] text-white rounded-xl font-semibold hover:bg-[#3B2A21] disabled:opacity-50 transition-all shadow-md flex items-center justify-center gap-2"
+                      >
+                        {savingOutfit ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            <span>Saving...</span>
+                          </>
+                        ) : "Save & Share Outfit"}
+                      </button>
+                    ) : (
+                      <div className="mt-2 bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex flex-col gap-2">
+                        <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Outfit Saved!</p>
+                        <p className="text-sm text-[#3B2A21]">Open on your phone:</p>
+                        <div className="bg-white rounded-lg px-4 py-3 border border-emerald-200 text-center">
+                          <span className="text-3xl font-bold tracking-[0.3em] text-[#4A3A2E]">{savedShareCode}</span>
+                        </div>
+                        <p className="text-xs text-[#8C6A4B] text-center break-all">
+                          {typeof window !== "undefined" ? `${window.location.origin}/outfit/${savedShareCode}` : ""}
+                        </p>
+                        <button
+                          onClick={() => {
+                            if (typeof window !== "undefined") {
+                              navigator.clipboard?.writeText(`${window.location.origin}/outfit/${savedShareCode}`);
+                            }
+                          }}
+                          className="w-full py-2 border border-[#4A3A2E] text-[#4A3A2E] text-sm rounded-lg hover:bg-[#4A3A2E] hover:text-white transition-all"
+                        >
+                          Copy Link
+                        </button>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => { setOutfitResult(null); setSavedShareCode(null); }}
+                      className="w-full mt-2 py-2.5 border border-[#E5D5C8] text-[#3B2A21] text-sm rounded-xl hover:bg-[#F5E9DA] transition-all"
+                    >
+                      Rebuild Outfit
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              /* ── Normal Recommendations View ───────────────────────────── */
+              <>
             <div className="flex items-center justify-between mb-4 flex-shrink-0">
               <h2 className="text-2xl font-medium text-[#3B2A21]">Complete Your Look</h2>
             </div>
-            
+
             {/* Category Filter Pills - More Subtle */}
             {mainItem && (
               <div className="flex gap-2 mb-4 flex-shrink-0">
@@ -1030,6 +1433,8 @@ export default function SessionKioskPage() {
                 )}
               </div>
             )}
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -1202,6 +1607,173 @@ export default function SessionKioskPage() {
           type={notification.type}
           onClose={() => setNotification(null)}
         />
+      )}
+
+      {/* ── In-Session Preferences Modal ─────────────────────────────────── */}
+      {isPrefsModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-8 flex flex-col gap-6">
+            <div>
+              <h2 className="text-2xl font-bold text-[#3B2A21] mb-1">Personalise Your Experience</h2>
+              <p className="text-sm text-[#8C6A4B]">Help us recommend the perfect outfit for you.</p>
+            </div>
+
+            {/* Sizes */}
+            <div>
+              <p className="text-sm font-semibold text-[#3B2A21] mb-3 uppercase tracking-wide">Your Sizes</p>
+              <div className="grid grid-cols-3 gap-3">
+                {(["XS","S","M","L","XL","XXL"] as const).map(s => (
+                  <button key={`top-${s}`} onClick={() => setPrefTopSize(prefTopSize === s ? "" : s)}
+                    className={`py-2 rounded-xl text-sm font-medium border transition-all ${prefTopSize === s ? "bg-[#4A3A2E] text-white border-[#4A3A2E]" : "border-[#E5D5C8] text-[#3B2A21] hover:border-[#4A3A2E]"}`}>
+                    Top {s}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-4 gap-3 mt-2">
+                {(["28","30","32","34","36","38","40","42"] as const).map(s => (
+                  <button key={`bot-${s}`} onClick={() => setPrefBottomSize(prefBottomSize === s ? "" : s)}
+                    className={`py-2 rounded-xl text-sm font-medium border transition-all ${prefBottomSize === s ? "bg-[#4A3A2E] text-white border-[#4A3A2E]" : "border-[#E5D5C8] text-[#3B2A21] hover:border-[#4A3A2E]"}`}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Colour preferences */}
+            <div>
+              <p className="text-sm font-semibold text-[#3B2A21] mb-3 uppercase tracking-wide">Preferred Colours <span className="font-normal normal-case text-[#8C6A4B]">(pick any)</span></p>
+              <div className="flex flex-wrap gap-2">
+                {["black","white","navy","grey","beige","brown","green","red","pink","blue","denim","olive"].map(c => (
+                  <button key={c} onClick={() => togglePrefColor(c)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border capitalize transition-all ${prefColors.includes(c) ? "bg-[#4A3A2E] text-white border-[#4A3A2E]" : "border-[#E5D5C8] text-[#3B2A21] hover:border-[#4A3A2E]"}`}>
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Style preferences */}
+            <div>
+              <p className="text-sm font-semibold text-[#3B2A21] mb-3 uppercase tracking-wide">Your Style</p>
+              <div className="flex flex-wrap gap-2">
+                {["casual","formal","sports","ethnic","party","smart casual"].map(s => (
+                  <button key={s} onClick={() => togglePrefStyle(s)}
+                    className={`px-4 py-2 rounded-full text-sm font-medium border capitalize transition-all ${prefStyles.includes(s) ? "bg-[#4A3A2E] text-white border-[#4A3A2E]" : "border-[#E5D5C8] text-[#3B2A21] hover:border-[#4A3A2E]"}`}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => setIsPrefsModalOpen(false)}
+                className="flex-1 py-3 border border-[#E5D5C8] text-[#3B2A21] rounded-xl font-medium hover:bg-[#F5E9DA] transition-all">
+                Skip
+              </button>
+              <button onClick={handleSavePreferences}
+                className="flex-1 py-3 bg-[#4A3A2E] text-white rounded-xl font-semibold hover:bg-[#3B2A21] transition-all shadow-md">
+                Save Preferences
+              </button>
+            </div>
+
+            {/* Optional: link a loyalty account */}
+            <p className="text-center text-xs text-[#8C6A4B]">
+              Have a loyalty account?{" "}
+              <button onClick={() => { setIsPrefsModalOpen(false); setIsCustomerLoginOpen(true); }}
+                className="underline font-medium text-[#4A3A2E]">
+                Link it for personalised recommendations
+              </button>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Customer Login Modal ─────────────────────────────────────────── */}
+      {isCustomerLoginOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 flex flex-col gap-5">
+
+            {/* If already linked — show profile summary */}
+            {customerId && customerProfile ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-[#4A3A2E] flex items-center justify-center text-white text-lg font-bold flex-shrink-0">
+                    {customerId[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="font-bold text-[#3B2A21] text-lg">Welcome back!</p>
+                    <p className="text-sm text-[#8C6A4B]">{customerId} · {customerProfile.visitCount || 1} visit{(customerProfile.visitCount || 1) !== 1 ? "s" : ""}</p>
+                  </div>
+                </div>
+
+                {/* Derived style summary */}
+                {customerProfile.derivedStyle && (
+                  <div className="bg-[#F5E9DA] rounded-2xl p-4 flex flex-col gap-3">
+                    <p className="text-xs font-semibold text-[#3B2A21] uppercase tracking-wide">Your Style Profile</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {customerProfile.derivedStyle.topColors.map(c => (
+                        <span key={c} className="px-2.5 py-1 bg-white rounded-full text-xs font-medium text-[#3B2A21] border border-[#E5D5C8] capitalize">{c}</span>
+                      ))}
+                      <span className="px-2.5 py-1 bg-[#4A3A2E] text-white rounded-full text-xs font-medium capitalize">{customerProfile.derivedStyle.dominantStyle}</span>
+                      <span className="px-2.5 py-1 bg-white rounded-full text-xs font-medium text-[#3B2A21] border border-[#E5D5C8]">avg ${customerProfile.derivedStyle.avgPrice}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Past purchases */}
+                {customerProfile.purchaseHistory && customerProfile.purchaseHistory.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-[#3B2A21] uppercase tracking-wide mb-2">Recent Purchases</p>
+                    <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto">
+                      {customerProfile.purchaseHistory.slice(-5).reverse().map((p, i) => (
+                        <div key={i} className="flex items-center justify-between bg-[#F5E9DA] rounded-xl px-3 py-2">
+                          <div>
+                            <p className="text-sm font-medium text-[#3B2A21]">{p.name}</p>
+                            <p className="text-xs text-[#8C6A4B] capitalize">{p.color} · {p.articleType}</p>
+                          </div>
+                          <p className="text-sm font-semibold text-[#3B2A21]">${p.price}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-xs text-[#8C6A4B] text-center">Recommendations are now personalised based on your purchase history.</p>
+                <button onClick={() => setIsCustomerLoginOpen(false)}
+                  className="w-full py-3 bg-[#4A3A2E] text-white rounded-xl font-semibold hover:bg-[#3B2A21] transition-all shadow-md">
+                  Continue Shopping
+                </button>
+              </>
+            ) : (
+              /* Not yet linked — show login form */
+              <>
+                <div>
+                  <h2 className="text-2xl font-bold text-[#3B2A21] mb-1">Link Loyalty Account</h2>
+                  <p className="text-sm text-[#8C6A4B]">Enter your phone number or email to load your profile and get personalised recommendations.</p>
+                </div>
+                <input
+                  type="text"
+                  value={customerIdInput}
+                  onChange={e => setCustomerIdInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleCustomerLogin()}
+                  placeholder="Phone number or email"
+                  className="px-4 py-3 border border-[#E5D5C8] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#4A3A2E] text-[#3B2A21]"
+                  autoFocus
+                />
+                <div className="flex gap-3">
+                  <button onClick={() => setIsCustomerLoginOpen(false)}
+                    className="flex-1 py-3 border border-[#E5D5C8] text-[#3B2A21] rounded-xl font-medium hover:bg-[#F5E9DA] transition-all">
+                    Cancel
+                  </button>
+                  <button onClick={handleCustomerLogin} disabled={!customerIdInput.trim()}
+                    className="flex-1 py-3 bg-[#4A3A2E] text-white rounded-xl font-semibold hover:bg-[#3B2A21] disabled:opacity-50 transition-all shadow-md">
+                    Link Account
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

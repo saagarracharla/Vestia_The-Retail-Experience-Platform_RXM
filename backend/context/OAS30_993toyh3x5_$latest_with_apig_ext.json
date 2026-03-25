@@ -1,0 +1,234 @@
+{
+  "openapi" : "3.0.1",
+  "info" : {
+    "title" : "vestia-api",
+    "version" : "2026-03-24 23:30:27UTC"
+  },
+  "servers" : [ {
+    "url" : "https://993toyh3x5.execute-api.ca-central-1.amazonaws.com/{basePath}",
+    "variables" : {
+      "basePath" : {
+        "default" : ""
+      }
+    }
+  } ],
+  "tags" : [ {
+    "name" : "awsApplication",
+    "x-amazon-apigateway-tag-value" : "arn:aws:resource-groups:ca-central-1:125667709386:group/Vestia/0dl5gdutzk85d04e4nyma9lwqb"
+  } ],
+  "paths" : {
+    "/product/{sku}" : {
+      "get" : {
+        "responses" : {
+          "default" : {
+            "description" : "Default response for GET /product/{sku}"
+          }
+        },
+        "x-amazon-apigateway-integration" : {
+          "payloadFormatVersion" : "2.0",
+          "type" : "aws_proxy",
+          "httpMethod" : "POST",
+          "uri" : "arn:aws:apigateway:ca-central-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ca-central-1:125667709386:function:vestia-product-get/invocations",
+          "connectionType" : "INTERNET"
+        }
+      },
+      "parameters" : [ {
+        "name" : "sku",
+        "in" : "path",
+        "description" : "Generated path parameter for sku",
+        "required" : true,
+        "schema" : {
+          "type" : "string"
+        }
+      } ]
+    },
+    "/session/{sessionId}" : {
+      "get" : {
+        "responses" : {
+          "default" : {
+            "description" : "Default response for GET /session/{sessionId}"
+          }
+        },
+        "x-amazon-apigateway-integration" : {
+          "payloadFormatVersion" : "2.0",
+          "type" : "aws_proxy",
+          "httpMethod" : "POST",
+          "uri" : "arn:aws:apigateway:ca-central-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ca-central-1:125667709386:function:vestia-session-get/invocations",
+          "connectionType" : "INTERNET"
+        }
+      },
+      "parameters" : [ {
+        "name" : "sessionId",
+        "in" : "path",
+        "description" : "Generated path parameter for sessionId",
+        "required" : true,
+        "schema" : {
+          "type" : "string"
+        }
+      } ]
+    },
+    "/store/{storeId}/request" : {
+      "get" : {
+        "responses" : {
+          "default" : {
+            "description" : "Default response for GET /store/{storeId}/request"
+          }
+        },
+        "x-amazon-apigateway-integration" : {
+          "payloadFormatVersion" : "2.0",
+          "type" : "aws_proxy",
+          "httpMethod" : "POST",
+          "uri" : "arn:aws:apigateway:ca-central-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ca-central-1:125667709386:function:vestia-request-get/invocations",
+          "connectionType" : "INTERNET"
+        }
+      },
+      "parameters" : [ {
+        "name" : "storeId",
+        "in" : "path",
+        "description" : "Generated path parameter for storeId",
+        "required" : true,
+        "schema" : {
+          "type" : "string"
+        }
+      } ]
+    },
+    "/request/{requestId}" : {
+      "patch" : {
+        "responses" : {
+          "default" : {
+            "description" : "Default response for PATCH /request/{requestId}"
+          }
+        },
+        "x-amazon-apigateway-integration" : {
+          "payloadFormatVersion" : "2.0",
+          "type" : "aws_proxy",
+          "httpMethod" : "POST",
+          "uri" : "arn:aws:apigateway:ca-central-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ca-central-1:125667709386:function:vestia-request-update/invocations",
+          "connectionType" : "INTERNET"
+        }
+      },
+      "parameters" : [ {
+        "name" : "requestId",
+        "in" : "path",
+        "description" : "Generated path parameter for requestId",
+        "required" : true,
+        "schema" : {
+          "type" : "string"
+        }
+      } ]
+    },
+    "/request/{requestId}/claim" : {
+      "patch" : {
+        "responses" : {
+          "default" : {
+            "description" : "Default response for PATCH /request/{requestId}/claim"
+          }
+        },
+        "x-amazon-apigateway-integration" : {
+          "payloadFormatVersion" : "2.0",
+          "type" : "aws_proxy",
+          "httpMethod" : "POST",
+          "uri" : "arn:aws:apigateway:ca-central-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ca-central-1:125667709386:function:vestia-request-claim/invocations",
+          "connectionType" : "INTERNET"
+        }
+      },
+      "parameters" : [ {
+        "name" : "requestId",
+        "in" : "path",
+        "description" : "Generated path parameter for requestId",
+        "required" : true,
+        "schema" : {
+          "type" : "string"
+        }
+      } ]
+    },
+    "/recommend" : {
+      "post" : {
+        "responses" : {
+          "default" : {
+            "description" : "Default response for POST /recommend"
+          }
+        },
+        "x-amazon-apigateway-integration" : {
+          "payloadFormatVersion" : "2.0",
+          "type" : "aws_proxy",
+          "httpMethod" : "POST",
+          "uri" : "arn:aws:apigateway:ca-central-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ca-central-1:125667709386:function:vestia-recommend/invocations",
+          "connectionType" : "INTERNET"
+        }
+      }
+    },
+    "/request" : {
+      "post" : {
+        "responses" : {
+          "default" : {
+            "description" : "Default response for POST /request"
+          }
+        },
+        "x-amazon-apigateway-integration" : {
+          "payloadFormatVersion" : "2.0",
+          "type" : "aws_proxy",
+          "httpMethod" : "POST",
+          "uri" : "arn:aws:apigateway:ca-central-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ca-central-1:125667709386:function:vestia-request-post/invocations",
+          "connectionType" : "INTERNET"
+        }
+      }
+    },
+    "/session/scan" : {
+      "post" : {
+        "responses" : {
+          "default" : {
+            "description" : "Default response for POST /session/scan"
+          }
+        },
+        "x-amazon-apigateway-integration" : {
+          "payloadFormatVersion" : "2.0",
+          "type" : "aws_proxy",
+          "httpMethod" : "POST",
+          "uri" : "arn:aws:apigateway:ca-central-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ca-central-1:125667709386:function:vestia-session-scan/invocations",
+          "connectionType" : "INTERNET"
+        }
+      }
+    }
+  },
+  "components" : {
+    "x-amazon-apigateway-integrations" : {
+      "unusedIntegration_tfpw9vl" : {
+        "payloadFormatVersion" : "2.0",
+        "type" : "aws_proxy",
+        "httpMethod" : "POST",
+        "uri" : "arn:aws:apigateway:ca-central-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ca-central-1:125667709386:function:vestia-request-post/invocations",
+        "connectionType" : "INTERNET"
+      },
+      "unusedIntegration_k0py0nk" : {
+        "payloadFormatVersion" : "2.0",
+        "type" : "aws_proxy",
+        "httpMethod" : "POST",
+        "uri" : "arn:aws:apigateway:ca-central-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ca-central-1:125667709386:function:vestia-session-get/invocations",
+        "connectionType" : "INTERNET"
+      },
+      "unusedIntegration_flfr9yg" : {
+        "payloadFormatVersion" : "2.0",
+        "type" : "aws_proxy",
+        "httpMethod" : "POST",
+        "uri" : "arn:aws:apigateway:ca-central-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ca-central-1:125667709386:function:vestia-session-handler/invocations",
+        "connectionType" : "INTERNET"
+      },
+      "unusedIntegration_89drna9" : {
+        "payloadFormatVersion" : "2.0",
+        "type" : "aws_proxy",
+        "httpMethod" : "POST",
+        "uri" : "arn:aws:apigateway:ca-central-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ca-central-1:125667709386:function:vestia-request-get/invocations",
+        "connectionType" : "INTERNET"
+      }
+    }
+  },
+  "x-amazon-apigateway-cors" : {
+    "allowMethods" : [ "GET", "OPTIONS", "PATCH", "POST" ],
+    "allowHeaders" : [ "authorization", "content-type" ],
+    "maxAge" : 300,
+    "allowCredentials" : false,
+    "allowOrigins" : [ "http://localhost:3000", "http://localhost:3001" ]
+  },
+  "x-amazon-apigateway-importexport-version" : "1.0"
+}

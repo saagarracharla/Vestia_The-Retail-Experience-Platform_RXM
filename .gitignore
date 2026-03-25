@@ -5,4 +5,12 @@ node_modules/
 backend/node_modules/
 frontend/node_modules/
 
+# Lambda deployment artifacts
+function.zip
+**/function.zip
+
+# Next.js build output
+frontend/.next/
+
 QChat/
+.claude

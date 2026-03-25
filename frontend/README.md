@@ -1,36 +1,107 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Vestia Frontend
+
+Next.js 16 + TypeScript frontend for the Vestia smart fitting room platform.
+
+## Stack
+
+- **Framework**: Next.js 16 (App Router)
+- **Language**: TypeScript 5
+- **Styling**: Tailwind CSS 4
+- **Runtime**: React 19
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev       # http://localhost:3000
+npm run build     # production build
+npx tsc --noEmit  # type check
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Pages
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Route | File | Description |
+|-------|------|-------------|
+| `/` | `app/page.tsx` | Customer kiosk welcome screen |
+| `/kiosk/session` | `app/kiosk/session/page.tsx` | Active fitting room session |
+| `/admin` | `app/admin/page.tsx` | Staff request dashboard |
+| `/analytics` | `app/analytics/page.tsx` | Store analytics |
+| `/analytics/store` | `app/analytics/store/page.tsx` | Store-level analytics breakdown |
+| `/outfit/{shareCode}` | `app/outfit/[shareCode]/page.tsx` | Shared outfit view (mobile-friendly) |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Source Structure
 
-## Learn More
+```
+src/
+├── app/
+│   ├── layout.tsx                  # Root layout with Navbar
+│   ├── globals.css                 # Global styles
+│   ├── page.tsx                    # Welcome / kiosk home
+│   ├── kiosk/session/page.tsx      # Main kiosk session page
+│   ├── admin/page.tsx              # Staff dashboard
+│   ├── analytics/
+│   │   ├── page.tsx                # Analytics dashboard
+│   │   └── store/page.tsx          # Store analytics
+│   └── outfit/
+│       └── [shareCode]/page.tsx    # Public shared outfit view
+│
+├── components/
+│   ├── ColourDot.tsx               # Coloured circle for colour display
+│   ├── DonutChart.tsx              # SVG donut chart for analytics
+│   ├── EndSessionModal.tsx         # End session + feedback collection
+│   ├── ErrorBoundary.tsx           # React error boundary wrapper
+│   ├── FutureFeaturesPlaceholder.tsx  # Placeholder for P2 features
+│   ├── ItemCard.tsx                # Product card with image + request button
+│   ├── LoadingSpinner.tsx          # Loading state indicator
+│   ├── Modal.tsx                   # Generic modal wrapper
+│   ├── Navbar.tsx                  # Top navigation bar
+│   ├── Notification.tsx            # Toast notification
+│   ├── SessionTimer.tsx            # Live session duration timer
+│   ├── StatCard.tsx                # Metric card for analytics
+│   └── WelcomeScreen.tsx           # Kiosk idle welcome screen
+│
+├── lib/
+│   └── api.ts                      # VestiaAPI class — all AWS API calls
+│
+└── utils/
+    └── sessionId.ts                # Session ID generation helper
+```
 
-To learn more about Next.js, take a look at the following resources:
+## API Client
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+All backend communication goes through `src/lib/api.ts` — a typed static class:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```typescript
+VestiaAPI.getProduct(sku)
+VestiaAPI.getSession(sessionId)
+VestiaAPI.scanItem(sessionId, sku, kioskId)
+VestiaAPI.getRecommendations(productId, targetCategory, gender?, sessionId?, customerId?, sessionPreferences?)
+VestiaAPI.createRequest({ sessionId, sku, requestedSize?, requestedColor? })
+VestiaAPI.updateRequest(requestId, { status?, action? })
+VestiaAPI.getCustomerProfile(customerId)       // returns null on 404 (new customer)
+VestiaAPI.upsertCustomerProfile(customerId, updates)
+VestiaAPI.submitSessionFeedback(sessionId, feedback)
+VestiaAPI.getAnalytics(days?)
+VestiaAPI.getStoreRequests(storeId)
+VestiaAPI.getOutfitRecommendations(productIds[], sessionId?, customerId?, sessionPreferences?)
+VestiaAPI.saveOutfit({ sessionId?, customerId?, items })
+VestiaAPI.getOutfit(shareCode)
+```
 
-## Deploy on Vercel
+**API Base**: `https://993toyh3x5.execute-api.ca-central-1.amazonaws.com`
+**Image Base**: `https://vestia-product-images.s3.ca-central-1.amazonaws.com/full/{sku}.jpg`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Key Session Page Features
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The kiosk session page (`/kiosk/session`) is the core of the customer experience:
+
+- **Scan items** — SKU input writes SCAN event to DynamoDB, triggers recommendation fetch
+- **Recommendations panel** — shows top-5 outfit suggestions scored by the recommendation algorithm
+- **Preferences modal** — auto-triggers after first scan; collects sizes, colours, styles; written as PREF event
+- **Customer login modal** — link loyalty email to load purchase history and `derivedStyle`; re-fetches recommendations with customer context
+- **Request modal** — customer requests a size/colour change; creates REQUEST event (QUEUED → CLAIMED → DELIVERED)
+- **In-session feedback** — thumbs up/down + colour preference on recommendation cards; adjusts live scoring
+- **Mix & Match mode** — select multiple scanned items, calls `/recommend` with `productIds[]`, receives outfit completions for all missing categories (top/bottom/shoes/accessory) scored against all selected items simultaneously
+- **Save & Share outfit** — after building an outfit, saves it to DynamoDB via POST `/outfit`, generates a 6-char share code; customer photographs the screen; `/outfit/{shareCode}` renders the full outfit on any device without authentication
+- **Session timer** — live elapsed time display
+- **End session modal** — collects overall and per-item feedback before closing
