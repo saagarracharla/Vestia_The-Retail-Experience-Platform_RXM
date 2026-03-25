@@ -6,6 +6,42 @@ function getImageUrl(sku: string): string {
   return `${IMAGE_BASE_URL}${sku}.jpg`;
 }
 
+// Customer profile types
+export interface PurchaseRecord {
+  productId: string;
+  name: string;
+  articleType: string;
+  color: string;
+  price: number;
+  purchasedAt: string;
+}
+
+export interface CustomerProfile {
+  customerId: string;
+  gender?: string;
+  preferredSizes?: Record<string, string>; // { top: "M", bottom: "32", shoes: "10" }
+  preferredColors?: string[];
+  preferredStyles?: string[];
+  purchaseHistory?: PurchaseRecord[];
+  visitCount?: number;
+  lastVisitAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  // Derived from purchase history by the Lambda
+  derivedStyle?: {
+    topColors: string[];       // most-bought colors
+    topArticles: string[];     // most-bought article types
+    avgPrice: number;          // average purchase price
+    dominantStyle: string;     // casual / formal / sports / ethnic
+  };
+}
+
+export interface SessionPreferences {
+  preferredSizes?: Record<string, string>;
+  preferredColors?: string[];
+  preferredStyles?: string[];
+}
+
 // Types based on AWS Lambda responses
 export interface RecommendationItem {
   productId: string;
@@ -15,7 +51,22 @@ export interface RecommendationItem {
   color: string;
   price: number;
   score: number;
-  imageUrl?: string; // Dynamically constructed from productId
+  imageUrl?: string;
+}
+
+export interface AnalyticsData {
+  period: { days: number; from: string; to: string };
+  totalSessions: number;
+  totalScans: number;
+  totalRequests: number;
+  avgItemsPerSession: number;
+  avgSessionDurationSeconds: number;
+  avgFulfillmentSeconds: number;
+  requestFulfillmentRate: number;
+  requestStatusBreakdown: Record<string, number>;
+  topItems: { sku: string; count: number }[];
+  topSizes: { size: string; count: number }[];
+  topColors: { color: string; count: number }[];
 }
 
 // Types for normalized event schema
@@ -104,27 +155,70 @@ export class VestiaAPI {
   static async getRecommendations(
     productId: string,
     targetCategory: "top" | "bottom" | "shoes" | "accessory",
-    gender?: string
+    gender?: string,
+    sessionId?: string,
+    customerId?: string,
+    sessionPreferences?: SessionPreferences
   ): Promise<RecommendationItem[]> {
-    const payload: any = {
-      productId,
-      targetCategory,
-    };
-    
-    if (gender) {
-      payload.gender = gender;
-    }
-    
+    const payload: Record<string, unknown> = { productId, targetCategory };
+    if (gender) payload.gender = gender;
+    if (sessionId) payload.sessionId = sessionId;
+    if (customerId) payload.customerId = customerId;
+    if (sessionPreferences) payload.sessionPreferences = sessionPreferences;
+
     const recommendations = await this.request<RecommendationItem[]>("/recommend", {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    
-    // Attach imageUrl to each recommendation
+
     return recommendations.map(rec => ({
       ...rec,
-      imageUrl: getImageUrl(rec.productId)
+      imageUrl: getImageUrl(rec.productId),
     }));
+  }
+
+  // Customer Profile API
+  static async getCustomerProfile(customerId: string): Promise<CustomerProfile | null> {
+    // Use direct fetch so 404 (new customer) doesn't log a console error
+    const url = `${API_BASE_URL}/customer/${encodeURIComponent(customerId)}`;
+    const res = await fetch(url, { headers: { "Content-Type": "application/json" } });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`Failed to fetch profile: ${res.status}`);
+    return res.json();
+  }
+
+  static async upsertCustomerProfile(customerId: string, updates: Partial<CustomerProfile> & { incrementVisit?: boolean }): Promise<CustomerProfile> {
+    const result = await this.request<{ profile: CustomerProfile }>(`/customer/${customerId}`, {
+      method: "PUT",
+      body: JSON.stringify(updates),
+    });
+    return result.profile;
+  }
+
+  // Session Preferences API
+  static async saveSessionPreferences(sessionId: string, prefs: SessionPreferences): Promise<void> {
+    await this.request<void>("/session/preferences", {
+      method: "POST",
+      body: JSON.stringify({ sessionId, ...prefs }),
+    });
+  }
+
+  static async getAnalytics(days = 30): Promise<AnalyticsData> {
+    return this.request<AnalyticsData>(`/analytics?days=${days}`);
+  }
+
+  static async submitSessionFeedback(sessionId: string, feedback: {
+    overallRating?: number;
+    overallComment?: string;
+    itemFeedback?: object[];
+    experienceRating?: number;
+    experienceComment?: string;
+    wouldReturn?: boolean;
+  }): Promise<{ feedbackId: string }> {
+    return this.request<{ feedbackId: string }>("/session/feedback", {
+      method: "POST",
+      body: JSON.stringify({ sessionId, ...feedback }),
+    });
   }
 
   // Session API

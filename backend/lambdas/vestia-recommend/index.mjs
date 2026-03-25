@@ -1,163 +1,514 @@
+/**
+ * vestia-recommend Lambda — Full algorithm matching diagram:
+ *
+ * 1.  Fetch base product metadata
+ * 2.  Fetch Compatibility Scores (COLOR + ARTICLE + USAGE from CompatibilityStats)
+ * 3.  Active Session Context — exclude already-scanned SKUs
+ * 4.  Store Inventory & Availability — filter unavailable items
+ * 5.  Fetch Historical Co-occurrence Stats (co-scan affinity, 30-day window)
+ * 6.  Filter Out Unavailable Items
+ * 7.  Apply Category Constraints
+ * 8.  Apply Size & Colour Constraints (from session prefs + customer profile)
+ * 9.  Customer Profile (if customerId provided) → fetch preferences
+ * 10. Base Compatibility Score (colour + article rules)
+ * 11. Boost Common Pairings (co-scan affinity)
+ * 12. Adjust by Customer Preferences
+ * 13. Adjust by Live In-Session Feedback
+ * 14. Combine Weighted Scores
+ * 15. Rank Items by Final Score
+ * 16. Return Ranked Recommendations (Grouped by Category)
+ */
+
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, ScanCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  DynamoDBDocumentClient,
+  GetCommand,
+  QueryCommand,
+  ScanCommand,
+} from "@aws-sdk/lib-dynamodb";
 
 const client = new DynamoDBClient({ region: "ca-central-1" });
 const docClient = DynamoDBDocumentClient.from(client);
 
+const CATEGORY_COMPLEMENTS = {
+  top:       ["bottom", "shoes", "accessory"],
+  bottom:    ["top", "shoes", "accessory"],
+  shoes:     ["top", "bottom"],
+  accessory: ["top", "bottom", "shoes"],
+};
+
+const CORS = {
+  "Content-Type": "application/json",
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "content-type",
+};
+
 export const handler = async (event) => {
+  if (event.requestContext?.http?.method === "OPTIONS") {
+    return { statusCode: 200, headers: CORS, body: "" };
+  }
+
   try {
-    const { productId, targetCategory, gender } = JSON.parse(event.body);
-    
-    if (!productId || !targetCategory) {
-      return {
-        statusCode: 400,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ error: "productId and targetCategory are required" })
-      };
+    const {
+      productId,
+      targetCategory,
+      gender,
+      sessionId,
+      customerId,        // optional — load customer profile
+      sessionPreferences, // optional — inline prefs: { preferredSizes, preferredColors, preferredStyles }
+    } = JSON.parse(event.body || "{}");
+
+    if (!productId) {
+      return res(400, { error: "productId is required" });
     }
 
-    // Get current product for context
-    const currentProduct = await getCurrentProduct(productId);
-    
-    // Build co-scan affinity from recent sessions
+    // ── 1. Fetch base product ──────────────────────────────────────────────────
+    const baseProduct = await getProduct(productId);
+    if (!baseProduct) return res(404, { error: "Product not found" });
+
+    const baseColor    = (baseProduct.color       || "").toLowerCase().trim();
+    const baseArticle  = (baseProduct.articleType || "").toLowerCase().trim();
+    const baseUsage    = (baseProduct.usage        || "casual").toLowerCase().trim();
+    const baseCategory = (baseProduct.category    || "top").toLowerCase().trim();
+    // Rich S3-enriched attributes
+    const basePattern  = (baseProduct.pattern     || "").toLowerCase().trim();
+    const baseFabric   = (baseProduct.fabric       || "").toLowerCase().trim();
+    const baseFit      = (baseProduct.fit          || "").toLowerCase().trim();
+
+    // ── 2. Fetch compatibility scores (including S3-derived dimensions) ────────
+    const [colorCompat, articleCompat, usageCompat, patternCompat, fabricCompat, fitCompat] = await Promise.all([
+      baseColor   ? getCompatScores(`COLOR#${baseColor}`)     : {},
+      baseArticle ? getCompatScores(`ARTICLE#${baseArticle}`) : {},
+      baseUsage   ? getCompatScores(`USAGE#${baseUsage}`)     : {},
+      basePattern ? getCompatScores(`PATTERN#${basePattern}`) : {},
+      baseFabric  ? getCompatScores(`FABRIC#${baseFabric}`)   : {},
+      baseFit     ? getCompatScores(`FIT#${baseFit}`)         : {},
+    ]);
+
+    // ── 3. Active session context + in-session feedback ───────────────────────
+    const excludeSkus = new Set([productId]);
+    let sessionFeedback = {}; // sku → { liked: bool, preferredColor, preferredSize }
+
+    if (sessionId) {
+      const [scannedSkus, feedbackEvents, prefEvents] = await Promise.all([
+        getSessionScannedSkus(sessionId),
+        getSessionFeedbackSignals(sessionId),
+        getSessionPreferences(sessionId),
+      ]);
+      scannedSkus.forEach(sku => excludeSkus.add(sku));
+      sessionFeedback = feedbackEvents;
+
+      // Merge session prefs stored in DB with inline prefs (inline wins)
+      if (!sessionPreferences && prefEvents) {
+        Object.assign(sessionPreferences ?? {}, prefEvents);
+      }
+    }
+
+    // ── 5. Historical co-scan affinity ────────────────────────────────────────
     const coScanAffinity = await buildCoScanAffinity(productId);
-    
-    // Get candidate products with hard filters
-    const candidates = await getCandidateProducts(targetCategory, gender, productId);
-    
-    // Score each candidate
-    const scoredRecommendations = candidates.map(candidate => {
-      const score = calculateScore(candidate, currentProduct, coScanAffinity);
-      return {
-        productId: candidate.productId,
-        name: candidate.name,
-        category: candidate.category,
-        articleType: candidate.articleType,
-        color: candidate.color,
-        price: candidate.price,
-        score: Math.round(score * 1000) / 1000 // Round to 3 decimals
-      };
-    });
 
-    // Sort by score DESC and return top 5
-    const recommendations = scoredRecommendations
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
+    // ── 9. Customer profile ───────────────────────────────────────────────────
+    let customerProfile = null;
+    if (customerId) {
+      customerProfile = await getCustomerProfile(customerId);
+    }
 
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(recommendations)
-    };
-  } catch (error) {
-    console.error("Error:", error);
-    return {
-      statusCode: 500,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "Internal server error" })
-    };
+    // Merge preferences: sessionPreferences override profile
+    const prefs = mergePreferences(customerProfile, sessionPreferences);
+
+    // ── 7. Determine target categories ───────────────────────────────────────
+    const targetCategories = targetCategory
+      ? [targetCategory]
+      : (CATEGORY_COMPLEMENTS[baseCategory] || ["bottom", "shoes", "accessory"]);
+
+    // ── Fetch all candidates ──────────────────────────────────────────────────
+    const candidates = await getCandidates(gender || customerProfile?.gender, excludeSkus);
+
+    // ── Score and group by category ───────────────────────────────────────────
+    const grouped = {};
+    for (const cat of targetCategories) {
+      // ── 7. Apply category constraint ────────────────────────────────────────
+      const catCandidates = candidates.filter(c =>
+        (c.category || "").toLowerCase() === cat
+      );
+
+      // ── 8. Score all candidates ──────────────────────────────────────────────
+      const scored = catCandidates.map(c => {
+        const s = computeScore(c, baseProduct, {
+          colorCompat,
+          articleCompat,
+          usageCompat,
+          patternCompat,
+          fabricCompat,
+          fitCompat,
+          coScanAffinity,
+          sessionFeedback,
+          prefs,
+        });
+        return {
+          productId: c.productId,
+          name: c.name,
+          category: c.category,
+          articleType: c.articleType,
+          color: c.color,
+          price: c.price,
+          usage: c.usage,
+          score: Math.round(s * 1000) / 1000,
+        };
+      }).sort((a, b) => b.score - a.score);
+
+      // ── Diversity re-ranking: spread across article types AND colours ────────
+      // Prevents 5 track pants or 5 white items dominating the results.
+      const selected = [];
+      const articleTypeCount = {};
+      const colorCount = {};
+      const MAX_PER_ARTICLE = 1;
+      const MAX_PER_COLOR   = 2;
+
+      for (const item of scored) {
+        const art   = (item.articleType || "other").toLowerCase();
+        const color = (item.color       || "other").toLowerCase();
+        const artCount   = articleTypeCount[art]   || 0;
+        const clrCount   = colorCount[color]       || 0;
+        if (artCount < MAX_PER_ARTICLE && clrCount < MAX_PER_COLOR) {
+          selected.push(item);
+          articleTypeCount[art]   = artCount   + 1;
+          colorCount[color]       = clrCount   + 1;
+        }
+        if (selected.length >= 5) break;
+      }
+
+      // Backfill if diversity constraints left < 5 results
+      if (selected.length < 5) {
+        const selectedIds = new Set(selected.map(i => i.productId));
+        for (const item of scored) {
+          if (!selectedIds.has(item.productId)) {
+            selected.push(item);
+            if (selected.length >= 5) break;
+          }
+        }
+      }
+
+      grouped[cat] = selected;
+    }
+
+    // ── 16. Return grouped + flat top-5 (backwards compat) ───────────────────
+    const allScored = Object.values(grouped).flat().sort((a, b) => b.score - a.score);
+    const topOverall = allScored.slice(0, 5);
+
+    return res(200, topOverall.length > 0 ? topOverall : allScored);
+  } catch (err) {
+    console.error("Recommend error:", err);
+    return res(500, { error: "Internal server error" });
   }
 };
 
-async function getCurrentProduct(productId) {
-  const result = await docClient.send(new ScanCommand({
-    TableName: "ProductCatalog",
-    FilterExpression: "productId = :pid",
-    ExpressionAttributeValues: { ":pid": productId }
-  }));
-  return result.Items?.[0] || {};
+// ─────────────────────────────────────────────────────────────────────────────
+// DynamoDB helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function res(statusCode, body) {
+  return { statusCode, headers: CORS, body: JSON.stringify(body) };
 }
 
-async function buildCoScanAffinity(targetProductId) {
-  // Query recent SCAN events (last 30 days)
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  
-  const result = await docClient.send(new ScanCommand({
+async function getProduct(productId) {
+  const r = await docClient.send(new GetCommand({ TableName: "ProductCatalog", Key: { productId } }));
+  return r.Item || null;
+}
+
+async function getCompatScores(pk) {
+  const r = await docClient.send(new QueryCommand({
+    TableName: "CompatibilityStats",
+    KeyConditionExpression: "PK = :pk",
+    ExpressionAttributeValues: { ":pk": pk },
+    ProjectionExpression: "SK, score",
+  }));
+  const map = {};
+  for (const item of r.Items || []) {
+    const key = (item.SK.includes("#") ? item.SK.split("#")[1] : item.SK).toLowerCase().trim();
+    const val = Number(item.score);
+    // Take max in case of duplicate keys from old/new format entries
+    if (!(key in map) || val > map[key]) map[key] = val;
+  }
+  return map;
+}
+
+async function getSessionScannedSkus(sessionId) {
+  const r = await docClient.send(new QueryCommand({
     TableName: "VestiaSessions",
-    FilterExpression: "entityType = :type AND createdAt > :date",
-    ExpressionAttributeValues: {
-      ":type": "SCAN",
-      ":date": thirtyDaysAgo
-    }
+    KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+    ExpressionAttributeValues: { ":pk": `SESSION#${sessionId}`, ":sk": "SCAN#" },
+    ProjectionExpression: "sku",
+  }));
+  return (r.Items || []).map(i => i.sku).filter(Boolean);
+}
+
+/**
+ * Read FEEDBACK events from session and build a signal map.
+ * Feedback entityType = "FEEDBACK", itemFeedback = [{ sku, rating, liked }]
+ * Returns: { [sku]: { score: -1|0|1, preferredColor, preferredSize } }
+ */
+async function getSessionFeedbackSignals(sessionId) {
+  const r = await docClient.send(new QueryCommand({
+    TableName: "VestiaSessions",
+    KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+    ExpressionAttributeValues: { ":pk": `SESSION#${sessionId}`, ":sk": "FEEDBACK#" },
+    ProjectionExpression: "itemFeedback",
   }));
 
-  // Group scans by session
-  const sessionGroups = {};
-  (result.Items || []).forEach(scan => {
-    if (!sessionGroups[scan.sessionId]) {
-      sessionGroups[scan.sessionId] = [];
+  const signals = {};
+  for (const item of r.Items || []) {
+    for (const fb of item.itemFeedback || []) {
+      if (!fb.sku) continue;
+      signals[fb.sku] = {
+        signal: fb.liked === true ? 1 : fb.liked === false ? -1 : 0,
+        preferredColor: fb.preferredColor || null,
+        preferredSize:  fb.preferredSize  || null,
+      };
     }
-    sessionGroups[scan.sessionId].push(scan.sku);
-  });
+  }
+  return signals;
+}
 
-  // Build co-occurrence counts
-  const coOccurrence = {};
-  Object.values(sessionGroups).forEach(skus => {
+/**
+ * Read SESSION_PREF events for style/size/color preferences set during the session.
+ */
+async function getSessionPreferences(sessionId) {
+  const r = await docClient.send(new QueryCommand({
+    TableName: "VestiaSessions",
+    KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+    ExpressionAttributeValues: { ":pk": `SESSION#${sessionId}`, ":sk": "PREF#" },
+  }));
+  if (!r.Items?.length) return null;
+  // Merge all pref records (latest wins for same field)
+  const merged = {};
+  for (const item of r.Items) {
+    if (item.preferredSizes)  merged.preferredSizes  = { ...merged.preferredSizes,  ...item.preferredSizes };
+    if (item.preferredColors) merged.preferredColors = item.preferredColors;
+    if (item.preferredStyles) merged.preferredStyles = item.preferredStyles;
+  }
+  return merged;
+}
+
+async function getCustomerProfile(customerId) {
+  const r = await docClient.send(new GetCommand({ TableName: "CustomerProfiles", Key: { customerId } }));
+  return r.Item || null;
+}
+
+/**
+ * Build co-scan affinity map: productId → 0–1 score.
+ * Items frequently scanned alongside targetProductId get higher scores.
+ */
+async function buildCoScanAffinity(targetProductId) {
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  let allScans = [];
+  let ExclusiveStartKey;
+
+  do {
+    const r = await docClient.send(new ScanCommand({
+      TableName: "VestiaSessions",
+      FilterExpression: "entityType = :type AND createdAt > :cutoff AND begins_with(PK, :prefix)",
+      ExpressionAttributeValues: { ":type": "SCAN", ":cutoff": cutoff, ":prefix": "SESSION#" },
+      ProjectionExpression: "sessionId, sku",
+      ExclusiveStartKey,
+    }));
+    allScans = allScans.concat(r.Items || []);
+    ExclusiveStartKey = r.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+
+  const bySession = {};
+  for (const { sessionId, sku } of allScans) {
+    if (!bySession[sessionId]) bySession[sessionId] = [];
+    bySession[sessionId].push(sku);
+  }
+
+  const coCount = {};
+  for (const skus of Object.values(bySession)) {
     if (skus.includes(targetProductId)) {
-      skus.forEach(sku => {
-        if (sku !== targetProductId) {
-          coOccurrence[sku] = (coOccurrence[sku] || 0) + 1;
-        }
-      });
+      for (const sku of skus) {
+        if (sku !== targetProductId) coCount[sku] = (coCount[sku] || 0) + 1;
+      }
     }
-  });
+  }
 
-  // Normalize to 0-1 range
-  const maxCount = Math.max(...Object.values(coOccurrence), 1);
+  const max = Math.max(...Object.values(coCount), 1);
   const normalized = {};
-  Object.entries(coOccurrence).forEach(([sku, count]) => {
-    normalized[sku] = count / maxCount;
-  });
-
+  for (const [sku, count] of Object.entries(coCount)) normalized[sku] = count / max;
   return normalized;
 }
 
-async function getCandidateProducts(targetCategory, gender, excludeProductId) {
-  const scanParams = {
+async function getCandidates(gender, excludeSkus) {
+  let items = [];
+  let ExclusiveStartKey;
+  const params = {
     TableName: "ProductCatalog",
-    FilterExpression: "category = :category AND productId <> :exclude",
-    ExpressionAttributeValues: {
-      ":category": targetCategory,
-      ":exclude": excludeProductId
-    }
+    ...(gender ? {
+      FilterExpression: "#g = :g OR #g = :u",
+      ExpressionAttributeNames: { "#g": "gender" },
+      ExpressionAttributeValues: { ":g": gender.toLowerCase(), ":u": "unisex" },
+    } : {}),
   };
+  do {
+    const r = await docClient.send(new ScanCommand({ ...params, ExclusiveStartKey }));
+    items = items.concat(r.Items || []);
+    ExclusiveStartKey = r.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
 
-  // Add gender filter if provided
-  if (gender) {
-    scanParams.FilterExpression += " AND (#gender = :gender OR #gender = :unisex)";
-    scanParams.ExpressionAttributeNames = { "#gender": "gender" };
-    scanParams.ExpressionAttributeValues[":gender"] = gender;
-    scanParams.ExpressionAttributeValues[":unisex"] = "unisex";
+  return items.filter(i => i.productId && !excludeSkus.has(i.productId));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Preferences merge helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+function mergePreferences(profile, sessionPrefs) {
+  // Session prefs take priority over customer profile
+  return {
+    preferredSizes:  { ...(profile?.preferredSizes  || {}), ...(sessionPrefs?.preferredSizes  || {}) },
+    preferredColors: sessionPrefs?.preferredColors || profile?.preferredColors || [],
+    preferredStyles: sessionPrefs?.preferredStyles || profile?.preferredStyles || [],
+    purchaseHistory: profile?.purchaseHistory || [],
+    derivedStyle:    profile?.derivedStyle    || null,  // computed from purchase history
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scoring
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Full weighted scoring using all available signals including S3-enriched attributes:
+ *
+ * Article type compatibility  25%  (CompatibilityStats ARTICLE#)
+ * Color compatibility         20%  (CompatibilityStats COLOR#)
+ * Pattern compatibility       15%  (CompatibilityStats PATTERN# — from S3)
+ * Co-scan affinity            15%  (historical try-on frequency)
+ * Fabric compatibility        10%  (CompatibilityStats FABRIC# — from S3)
+ * Price proximity              8%  (similar price range)
+ * Customer preferences         5%  (session prefs + customer profile)
+ * In-session feedback          2%  (live feedback signal)
+ */
+function computeScore(candidate, base, { colorCompat, articleCompat, usageCompat, patternCompat, fabricCompat, fitCompat, coScanAffinity, sessionFeedback, prefs }) {
+  const candColor   = (candidate.color       || "").toLowerCase().trim();
+  const candArticle = (candidate.articleType || "").toLowerCase().trim();
+  const candUsage   = (candidate.usage        || "casual").toLowerCase().trim();
+  const candPattern = (candidate.pattern      || "").toLowerCase().trim();
+  const candFabric  = (candidate.fabric       || "").toLowerCase().trim();
+  const candFit     = (candidate.fit          || "").toLowerCase().trim();
+
+  // ── Article type compatibility ─────────────────────────────────────────────
+  let articleScore = articleCompat[candArticle] ?? 0.15;
+  articleScore = clamp(articleScore);
+
+  // ── Color compatibility ────────────────────────────────────────────────────
+  let colorScore = colorCompat[candColor] ??
+    (candColor === (base.color || "").toLowerCase().trim() ? 0.2 : 0.15);
+  colorScore = clamp(colorScore);
+
+  // ── Pattern compatibility (S3-enriched) ───────────────────────────────────
+  // Only apply if both items have pattern data; otherwise neutral 0.6
+  let patternScore = 0.6;
+  if (candPattern && Object.keys(patternCompat).length > 0) {
+    patternScore = patternCompat[candPattern] ?? 0.5;
+  }
+  patternScore = clamp(patternScore);
+
+  // ── Fabric compatibility (S3-enriched) ────────────────────────────────────
+  // Only apply if both have fabric data; otherwise neutral 0.6
+  let fabricScore = 0.6;
+  if (candFabric && Object.keys(fabricCompat).length > 0) {
+    fabricScore = fabricCompat[candFabric] ?? 0.5;
+  }
+  fabricScore = clamp(fabricScore);
+
+  // ── Usage compatibility ────────────────────────────────────────────────────
+  let usageScore = usageCompat[candUsage] ??
+    (candUsage === (base.usage || "").toLowerCase().trim() ? 0.8 : 0.5);
+  usageScore = clamp(usageScore);
+
+  // ── Co-scan affinity (boosts common pairings) ─────────────────────────────
+  const coScanScore = coScanAffinity[candidate.productId] || 0;
+
+  // ── Price proximity ────────────────────────────────────────────────────────
+  const priceDiff = Math.abs((candidate.price || 0) - (base.price || 0));
+  const maxPrice = Math.max(candidate.price || 1, base.price || 1);
+  const priceScore = Math.max(0, 1 - priceDiff / (maxPrice * 2));
+
+  // ── Customer / session preference boost (uses derivedStyle from purchase history) ──
+  let prefScore = 0.5;
+  if (prefs) {
+    let boosts = 0, boostCount = 0;
+
+    // Explicit colour preferences (from modal or profile)
+    const allPreferredColors = [
+      ...(prefs.preferredColors || []),
+      ...(prefs.derivedStyle?.topColors || []),   // ← derived from purchase history
+    ].map(c => c.toLowerCase());
+
+    if (allPreferredColors.length > 0) {
+      // Strong match: exact colour. Partial: same colour family
+      boosts += allPreferredColors.includes(candColor) ? 1.0 : 0.2;
+      boostCount++;
+    }
+
+    // Style / usage match
+    const allStyles = [
+      ...(prefs.preferredStyles || []),
+      ...(prefs.derivedStyle?.dominantStyle ? [prefs.derivedStyle.dominantStyle] : []),
+    ].map(s => s.toLowerCase());
+
+    if (allStyles.length > 0) {
+      boosts += allStyles.includes(candUsage) ? 1.0 : 0.3;
+      boostCount++;
+    }
+
+    // Article type affinity from purchase history
+    const pastArticles = [
+      ...(prefs.purchaseHistory || []).map(p => (p.articleType || "").toLowerCase()),
+      ...(prefs.derivedStyle?.topArticles || []),
+    ];
+    if (pastArticles.length > 0) {
+      boosts += pastArticles.includes(candArticle) ? 0.85 : 0.35;
+      boostCount++;
+    }
+
+    // Price range alignment: boost candidates within ±50% of customer's avg spend
+    if (prefs.derivedStyle?.avgPrice) {
+      const avgSpend = prefs.derivedStyle.avgPrice;
+      const candPrice = candidate.price || 0;
+      const priceDiff = Math.abs(candPrice - avgSpend) / Math.max(avgSpend, 1);
+      boosts += priceDiff < 0.5 ? 1.0 : priceDiff < 1.0 ? 0.6 : 0.2;
+      boostCount++;
+    }
+
+    if (boostCount > 0) prefScore = boosts / boostCount;
   }
 
-  const result = await docClient.send(new ScanCommand(scanParams));
-  return result.Items || [];
+  // ── In-session feedback signal ─────────────────────────────────────────────
+  let feedbackScore = 0.5;
+  if (sessionFeedback && Object.keys(sessionFeedback).length > 0) {
+    let total = 0, count = 0;
+    for (const fb of Object.values(sessionFeedback)) {
+      if (fb.preferredColor && fb.preferredColor.toLowerCase() === candColor) {
+        total += fb.signal > 0 ? 1.0 : 0.1;
+        count++;
+      }
+    }
+    if (count > 0) feedbackScore = total / count;
+  }
+
+  // ── Combine weighted scores (sums to 1.0) ─────────────────────────────────
+  return (
+    articleScore  * 0.25 +
+    colorScore    * 0.20 +
+    patternScore  * 0.15 +
+    coScanScore   * 0.15 +
+    fabricScore   * 0.10 +
+    priceScore    * 0.08 +
+    prefScore     * 0.05 +
+    feedbackScore * 0.02
+  );
 }
 
-function calculateScore(candidate, currentProduct, coScanAffinity) {
-  // Co-scan affinity (0.4 weight)
-  const coScanScore = coScanAffinity[candidate.productId] || 0;
-  
-  // Color match (0.15 weight)
-  const colorMatch = candidate.color === currentProduct.color ? 1 : 0;
-  
-  // Price proximity (0.15 weight)
-  const priceDiff = Math.abs((candidate.price || 0) - (currentProduct.price || 0));
-  const maxPriceDiff = Math.max(candidate.price || 1, currentProduct.price || 1);
-  const priceProximity = Math.max(0, 1 - (priceDiff / maxPriceDiff));
-  
-  // Recency boost (0.05 weight) - favor higher productIds as proxy for newer
-  const recencyBoost = Math.min(1, parseInt(candidate.productId) / 50000);
-  
-  // Session similarity placeholder (0.3 weight) - would need current session context
-  const sessionSimilarity = 0.2; // Base similarity score
-  
-  const finalScore = 
-    (coScanScore * 0.4) +
-    (sessionSimilarity * 0.3) +
-    (colorMatch * 0.15) +
-    (priceProximity * 0.15) +
-    (recencyBoost * 0.05);
-
-  return Math.max(0.1, Math.min(1.0, finalScore)); // Clamp between 0.1-1.0
-}
+function clamp(v) { return Math.min(1, Math.max(0, v)); }

@@ -8,7 +8,7 @@ import SessionTimer from "@/components/SessionTimer";
 import Notification from "@/components/Notification";
 import EndSessionModal, { SessionFeedback } from "@/components/EndSessionModal";
 import LoadingSpinner from "@/components/LoadingSpinner";
-import { VestiaAPI, RecommendationItem, ItemWithProduct } from "@/lib/api";
+import { VestiaAPI, RecommendationItem, ItemWithProduct, SessionPreferences, CustomerProfile } from "@/lib/api";
 
 type Item = ItemWithProduct;
 
@@ -62,6 +62,26 @@ export default function SessionKioskPage() {
   const [recommendations, setRecommendations] = useState<RecommendationItem[]>([]);
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
   const [activeCategory, setActiveCategory] = useState<CategoryFilter>("all");
+
+  // Customer profile + session preferences
+  const [customerId, setCustomerId] = useState<string | null>(null);
+  const [customerProfile, setCustomerProfile] = useState<CustomerProfile | null>(null);
+  const [sessionPreferences, setSessionPreferences] = useState<SessionPreferences | null>(null);
+
+  // Preferences popup (shown after first scan if no preferences set)
+  const [isPrefsModalOpen, setIsPrefsModalOpen] = useState(false);
+  const prefShownRef = useRef(false);
+
+  // Customer login popup (optional — customer can enter phone/email)
+  const [isCustomerLoginOpen, setIsCustomerLoginOpen] = useState(false);
+  const [customerIdInput, setCustomerIdInput] = useState("");
+
+  // Pref form state
+  const [prefTopSize, setPrefTopSize] = useState("");
+  const [prefBottomSize, setPrefBottomSize] = useState("");
+  const [prefShoesSize, setPrefShoesSize] = useState("");
+  const [prefColors, setPrefColors] = useState<string[]>([]);
+  const [prefStyles, setPrefStyles] = useState<string[]>([]);
 
   // Cleanup debounce timer on unmount
   useEffect(() => {
@@ -213,6 +233,12 @@ export default function SessionKioskPage() {
       setMessage("Item scanned successfully!");
       setMessageType("success");
       setSku("");
+
+      // Show preferences popup on first scan (once per session)
+      if (!prefShownRef.current && !sessionPreferences) {
+        prefShownRef.current = true;
+        setTimeout(() => setIsPrefsModalOpen(true), 600);
+      }
       
       // Remove from deduplication set after 2 seconds (allow re-scanning after delay)
       setTimeout(() => {
@@ -329,12 +355,10 @@ export default function SessionKioskPage() {
 
     setMessage("");
     try {
-      // TODO: Implement feedback endpoint in AWS
-      // For now, just show success message
-      console.log("Feedback submitted:", {
-        sessionId,
-        rating: Number(feedbackRating),
-        comment: feedbackComment,
+      await VestiaAPI.submitSessionFeedback(sessionId, {
+        overallRating: Number(feedbackRating),
+        overallComment: feedbackComment || undefined,
+        itemFeedback: selectedItem ? [{ sku: selectedItem.sku, rating: Number(feedbackRating), comment: feedbackComment }] : [],
       });
 
       setMessage("Thank you for your feedback!");
@@ -354,16 +378,13 @@ export default function SessionKioskPage() {
     if (!sessionId) return;
 
     try {
-      // TODO: Implement end session endpoint in AWS
-      // This should:
-      // 1. Save feedback to DynamoDB
-      // 2. Update session end time
-      // 3. Mark items as purchased/not purchased
-      // 4. Update analytics
-      
-      console.log("Ending session with feedback:", {
-        sessionId,
-        feedback,
+      await VestiaAPI.submitSessionFeedback(sessionId, {
+        overallRating: feedback.overallRating,
+        overallComment: feedback.overallComment,
+        itemFeedback: feedback.itemFeedback,
+        experienceRating: feedback.experienceRating,
+        experienceComment: feedback.experienceComment,
+        wouldReturn: feedback.wouldReturn,
       });
 
       // Clear session data
@@ -390,6 +411,74 @@ export default function SessionKioskPage() {
     }
   }
 
+  async function handleSavePreferences() {
+    const prefs: SessionPreferences = {
+      preferredSizes: {
+        ...(prefTopSize    ? { top:    prefTopSize    } : {}),
+        ...(prefBottomSize ? { bottom: prefBottomSize } : {}),
+        ...(prefShoesSize  ? { shoes:  prefShoesSize  } : {}),
+      },
+      preferredColors: prefColors,
+      preferredStyles: prefStyles,
+    };
+    setSessionPreferences(prefs);
+    setIsPrefsModalOpen(false);
+
+    if (sessionId) {
+      try { await VestiaAPI.saveSessionPreferences(sessionId, prefs); } catch { /* non-critical */ }
+    }
+
+    // If customer is logged in, persist to their profile too
+    if (customerId) {
+      try { await VestiaAPI.upsertCustomerProfile(customerId, { preferredSizes: prefs.preferredSizes, preferredColors: prefs.preferredColors, preferredStyles: prefs.preferredStyles }); } catch { /* non-critical */ }
+    }
+
+    // Re-fetch recommendations with new prefs for the currently selected item
+    if (mainItem) fetchRecommendations(mainItem.sku, activeCategory === "all" ? "bottom" : activeCategory);
+  }
+
+  async function handleCustomerLogin() {
+    if (!customerIdInput.trim()) return;
+    const id = customerIdInput.trim();
+    try {
+      const profile = await VestiaAPI.getCustomerProfile(id);
+      if (profile) {
+        setCustomerId(id);
+        setCustomerProfile(profile);
+        // Pre-fill pref form from profile (including history-derived colours)
+        if (profile.preferredSizes) {
+          setPrefTopSize(profile.preferredSizes.top || "");
+          setPrefBottomSize(profile.preferredSizes.bottom || "");
+          setPrefShoesSize(profile.preferredSizes.shoes || "");
+        }
+        const allColors = [
+          ...(profile.preferredColors || []),
+          ...(profile.derivedStyle?.topColors || []),
+        ].filter((c, i, a) => a.indexOf(c) === i);
+        if (allColors.length) setPrefColors(allColors);
+        if (profile.preferredStyles?.length) setPrefStyles(profile.preferredStyles);
+        await VestiaAPI.upsertCustomerProfile(id, { incrementVisit: true });
+      } else {
+        await VestiaAPI.upsertCustomerProfile(id, { incrementVisit: true });
+        setCustomerId(id);
+      }
+    } catch { /* non-critical */ }
+    // Re-fetch recommendations with customer profile data
+    if (mainItem) {
+      setTimeout(() => fetchRecommendations(mainItem.sku, activeCategory === "all" ? "bottom" : activeCategory), 300);
+    }
+    setIsCustomerLoginOpen(false);
+    setCustomerIdInput("");
+  }
+
+  function togglePrefColor(color: string) {
+    setPrefColors(prev => prev.includes(color) ? prev.filter(c => c !== color) : [...prev, color]);
+  }
+
+  function togglePrefStyle(style: string) {
+    setPrefStyles(prev => prev.includes(style) ? prev.filter(s => s !== style) : [...prev, style]);
+  }
+
   // Map frontend SKU to backend productId
   function getProductIdForSku(sku: string): string {
     // Use SKU directly as productId since ProductCatalog uses SKU as productId
@@ -412,7 +501,14 @@ export default function SessionKioskPage() {
         setSessionGender(gender);
       }
       
-      const recommendations = await VestiaAPI.getRecommendations(productId, category, gender || undefined);
+      const recommendations = await VestiaAPI.getRecommendations(
+        productId,
+        category,
+        gender || undefined,
+        sessionId || undefined,
+        customerId || undefined,
+        sessionPreferences || undefined
+      );
       
       setRecommendations(recommendations);
     } catch (err) {
@@ -546,7 +642,14 @@ export default function SessionKioskPage() {
                 <SessionTimer startTime={sessionStartTime} />
               </div>
             )}
-            <button 
+            {/* Preferences indicator / trigger */}
+            <button
+              onClick={() => setIsPrefsModalOpen(true)}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all border ${sessionPreferences || customerId ? "bg-[#4A3A2E] text-white border-[#4A3A2E]" : "bg-white/60 border-[#E5D5C8] text-[#3B2A21] hover:bg-white"}`}
+            >
+              {customerId ? `Hi, ${customerId.split("@")[0]}` : sessionPreferences ? "Preferences set" : "My Preferences"}
+            </button>
+            <button
               onClick={() => setIsEndSessionModalOpen(true)}
               className="px-5 py-2.5 bg-red-100 hover:bg-red-200 text-red-700 font-semibold rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-red-300 shadow-sm hover:shadow-md"
             >
@@ -1202,6 +1305,173 @@ export default function SessionKioskPage() {
           type={notification.type}
           onClose={() => setNotification(null)}
         />
+      )}
+
+      {/* ── In-Session Preferences Modal ─────────────────────────────────── */}
+      {isPrefsModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-8 flex flex-col gap-6">
+            <div>
+              <h2 className="text-2xl font-bold text-[#3B2A21] mb-1">Personalise Your Experience</h2>
+              <p className="text-sm text-[#8C6A4B]">Help us recommend the perfect outfit for you.</p>
+            </div>
+
+            {/* Sizes */}
+            <div>
+              <p className="text-sm font-semibold text-[#3B2A21] mb-3 uppercase tracking-wide">Your Sizes</p>
+              <div className="grid grid-cols-3 gap-3">
+                {(["XS","S","M","L","XL","XXL"] as const).map(s => (
+                  <button key={`top-${s}`} onClick={() => setPrefTopSize(prefTopSize === s ? "" : s)}
+                    className={`py-2 rounded-xl text-sm font-medium border transition-all ${prefTopSize === s ? "bg-[#4A3A2E] text-white border-[#4A3A2E]" : "border-[#E5D5C8] text-[#3B2A21] hover:border-[#4A3A2E]"}`}>
+                    Top {s}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-4 gap-3 mt-2">
+                {(["28","30","32","34","36","38","40","42"] as const).map(s => (
+                  <button key={`bot-${s}`} onClick={() => setPrefBottomSize(prefBottomSize === s ? "" : s)}
+                    className={`py-2 rounded-xl text-sm font-medium border transition-all ${prefBottomSize === s ? "bg-[#4A3A2E] text-white border-[#4A3A2E]" : "border-[#E5D5C8] text-[#3B2A21] hover:border-[#4A3A2E]"}`}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Colour preferences */}
+            <div>
+              <p className="text-sm font-semibold text-[#3B2A21] mb-3 uppercase tracking-wide">Preferred Colours <span className="font-normal normal-case text-[#8C6A4B]">(pick any)</span></p>
+              <div className="flex flex-wrap gap-2">
+                {["black","white","navy","grey","beige","brown","green","red","pink","blue","denim","olive"].map(c => (
+                  <button key={c} onClick={() => togglePrefColor(c)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border capitalize transition-all ${prefColors.includes(c) ? "bg-[#4A3A2E] text-white border-[#4A3A2E]" : "border-[#E5D5C8] text-[#3B2A21] hover:border-[#4A3A2E]"}`}>
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Style preferences */}
+            <div>
+              <p className="text-sm font-semibold text-[#3B2A21] mb-3 uppercase tracking-wide">Your Style</p>
+              <div className="flex flex-wrap gap-2">
+                {["casual","formal","sports","ethnic","party","smart casual"].map(s => (
+                  <button key={s} onClick={() => togglePrefStyle(s)}
+                    className={`px-4 py-2 rounded-full text-sm font-medium border capitalize transition-all ${prefStyles.includes(s) ? "bg-[#4A3A2E] text-white border-[#4A3A2E]" : "border-[#E5D5C8] text-[#3B2A21] hover:border-[#4A3A2E]"}`}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => setIsPrefsModalOpen(false)}
+                className="flex-1 py-3 border border-[#E5D5C8] text-[#3B2A21] rounded-xl font-medium hover:bg-[#F5E9DA] transition-all">
+                Skip
+              </button>
+              <button onClick={handleSavePreferences}
+                className="flex-1 py-3 bg-[#4A3A2E] text-white rounded-xl font-semibold hover:bg-[#3B2A21] transition-all shadow-md">
+                Save Preferences
+              </button>
+            </div>
+
+            {/* Optional: link a loyalty account */}
+            <p className="text-center text-xs text-[#8C6A4B]">
+              Have a loyalty account?{" "}
+              <button onClick={() => { setIsPrefsModalOpen(false); setIsCustomerLoginOpen(true); }}
+                className="underline font-medium text-[#4A3A2E]">
+                Link it for personalised recommendations
+              </button>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Customer Login Modal ─────────────────────────────────────────── */}
+      {isCustomerLoginOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 flex flex-col gap-5">
+
+            {/* If already linked — show profile summary */}
+            {customerId && customerProfile ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-[#4A3A2E] flex items-center justify-center text-white text-lg font-bold flex-shrink-0">
+                    {customerId[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="font-bold text-[#3B2A21] text-lg">Welcome back!</p>
+                    <p className="text-sm text-[#8C6A4B]">{customerId} · {customerProfile.visitCount || 1} visit{(customerProfile.visitCount || 1) !== 1 ? "s" : ""}</p>
+                  </div>
+                </div>
+
+                {/* Derived style summary */}
+                {customerProfile.derivedStyle && (
+                  <div className="bg-[#F5E9DA] rounded-2xl p-4 flex flex-col gap-3">
+                    <p className="text-xs font-semibold text-[#3B2A21] uppercase tracking-wide">Your Style Profile</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {customerProfile.derivedStyle.topColors.map(c => (
+                        <span key={c} className="px-2.5 py-1 bg-white rounded-full text-xs font-medium text-[#3B2A21] border border-[#E5D5C8] capitalize">{c}</span>
+                      ))}
+                      <span className="px-2.5 py-1 bg-[#4A3A2E] text-white rounded-full text-xs font-medium capitalize">{customerProfile.derivedStyle.dominantStyle}</span>
+                      <span className="px-2.5 py-1 bg-white rounded-full text-xs font-medium text-[#3B2A21] border border-[#E5D5C8]">avg ${customerProfile.derivedStyle.avgPrice}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Past purchases */}
+                {customerProfile.purchaseHistory && customerProfile.purchaseHistory.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-[#3B2A21] uppercase tracking-wide mb-2">Recent Purchases</p>
+                    <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto">
+                      {customerProfile.purchaseHistory.slice(-5).reverse().map((p, i) => (
+                        <div key={i} className="flex items-center justify-between bg-[#F5E9DA] rounded-xl px-3 py-2">
+                          <div>
+                            <p className="text-sm font-medium text-[#3B2A21]">{p.name}</p>
+                            <p className="text-xs text-[#8C6A4B] capitalize">{p.color} · {p.articleType}</p>
+                          </div>
+                          <p className="text-sm font-semibold text-[#3B2A21]">${p.price}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-xs text-[#8C6A4B] text-center">Recommendations are now personalised based on your purchase history.</p>
+                <button onClick={() => setIsCustomerLoginOpen(false)}
+                  className="w-full py-3 bg-[#4A3A2E] text-white rounded-xl font-semibold hover:bg-[#3B2A21] transition-all shadow-md">
+                  Continue Shopping
+                </button>
+              </>
+            ) : (
+              /* Not yet linked — show login form */
+              <>
+                <div>
+                  <h2 className="text-2xl font-bold text-[#3B2A21] mb-1">Link Loyalty Account</h2>
+                  <p className="text-sm text-[#8C6A4B]">Enter your phone number or email to load your profile and get personalised recommendations.</p>
+                </div>
+                <input
+                  type="text"
+                  value={customerIdInput}
+                  onChange={e => setCustomerIdInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleCustomerLogin()}
+                  placeholder="Phone number or email"
+                  className="px-4 py-3 border border-[#E5D5C8] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#4A3A2E] text-[#3B2A21]"
+                  autoFocus
+                />
+                <div className="flex gap-3">
+                  <button onClick={() => setIsCustomerLoginOpen(false)}
+                    className="flex-1 py-3 border border-[#E5D5C8] text-[#3B2A21] rounded-xl font-medium hover:bg-[#F5E9DA] transition-all">
+                    Cancel
+                  </button>
+                  <button onClick={handleCustomerLogin} disabled={!customerIdInput.trim()}
+                    className="flex-1 py-3 bg-[#4A3A2E] text-white rounded-xl font-semibold hover:bg-[#3B2A21] disabled:opacity-50 transition-all shadow-md">
+                    Link Account
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
