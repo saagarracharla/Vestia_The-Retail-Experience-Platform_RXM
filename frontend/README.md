@@ -26,7 +26,6 @@ npx tsc --noEmit  # type check
 | `/kiosk/session` | `app/kiosk/session/page.tsx` | Active fitting room session |
 | `/admin` | `app/admin/page.tsx` | Staff request dashboard |
 | `/analytics` | `app/analytics/page.tsx` | Store analytics |
-| `/analytics/store` | `app/analytics/store/page.tsx` | Store-level analytics breakdown |
 | `/outfit/{shareCode}` | `app/outfit/[shareCode]/page.tsx` | Shared outfit view (mobile-friendly) |
 
 ## Source Structure
@@ -40,8 +39,7 @@ src/
 │   ├── kiosk/session/page.tsx      # Main kiosk session page
 │   ├── admin/page.tsx              # Staff dashboard
 │   ├── analytics/
-│   │   ├── page.tsx                # Analytics dashboard
-│   │   └── store/page.tsx          # Store analytics
+│   │   └── page.tsx                # Analytics dashboard
 │   └── outfit/
 │       └── [shareCode]/page.tsx    # Public shared outfit view
 │

@@ -20,7 +20,6 @@ npm run dev
 | `http://localhost:3000/kiosk/session` | Active fitting room session |
 | `http://localhost:3000/admin` | Staff request dashboard |
 | `http://localhost:3000/analytics` | Store analytics |
-| `http://localhost:3000/analytics/store` | Store-level analytics |
 | `http://localhost:3000/outfit/{shareCode}` | Shared outfit view (mobile-friendly) |
 
 ---

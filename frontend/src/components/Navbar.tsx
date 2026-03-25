@@ -10,7 +10,6 @@ export default function Navbar() {
     { href: "/", label: "Kiosk" },
     { href: "/admin", label: "Requests" },
     { href: "/analytics", label: "Analytics" },
-    { href: "/analytics/store", label: "Analytics - Store" },
   ];
 
   return (
