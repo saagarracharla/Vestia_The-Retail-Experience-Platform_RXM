@@ -83,18 +83,18 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
     >
       <div
         ref={modalRef}
-        className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-md mx-4 transform transition-all max-h-[90vh] overflow-y-auto"
+        className="bg-[#FDF7EF] rounded-3xl shadow-2xl border border-[#E5D5C8] w-full max-w-md mx-4 animate-scale-in max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 id="modal-title" className="text-xl font-semibold text-gray-900">
+        <div className="p-7">
+          <div className="flex items-center justify-between mb-6">
+            <h2 id="modal-title" className="text-xl font-bold text-[#1C1007]">
               {title}
             </h2>
             <button
               ref={closeButtonRef}
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded-lg hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400"
+              className="text-[#8C6A4B] hover:text-[#1C1007] transition-colors p-2 rounded-xl hover:bg-[#F5E9DA] focus:outline-none focus:ring-2 focus:ring-[#4A3A2E]"
               aria-label="Close modal"
             >
               <svg

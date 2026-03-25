@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { VestiaAPI } from "@/lib/api";
+import Navbar from "@/components/Navbar";
 import LoadingSpinner from "@/components/LoadingSpinner";
 
 type RequestItem = {
@@ -15,321 +15,267 @@ type RequestItem = {
   requestId?: string;
   name?: string;
   price?: number;
+  createdAt?: string;
 };
+
+const STATUS_CONFIG: Record<string, { label: string; dot: string; badge: string; ring: string }> = {
+  QUEUED:    { label: "Queued",    dot: "bg-amber-400",  badge: "status-queued",    ring: "ring-amber-200" },
+  CLAIMED:   { label: "Claimed",   dot: "bg-blue-400",   badge: "status-claimed",   ring: "ring-blue-200" },
+  DELIVERED: { label: "Delivered", dot: "bg-emerald-400",badge: "status-delivered", ring: "ring-emerald-200" },
+  CANCELLED: { label: "Cancelled", dot: "bg-red-300",    badge: "status-cancelled", ring: "ring-red-100" },
+};
+
+function timeAgo(ts?: string) {
+  if (!ts) return "";
+  const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  return `${Math.floor(diff / 3600)}h ago`;
+}
 
 export default function AdminPage() {
   const [requests, setRequests] = useState<RequestItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState<"success" | "error">("success");
-  const [updatingRequestId, setUpdatingRequestId] = useState<string | null>(null);
-  const requestUpdateInProgressRef = useRef<Set<string>>(new Set());
+  const [toastMsg, setToastMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const inProgressRef = useRef<Set<string>>(new Set());
+
+  function showToast(text: string, ok = true) {
+    setToastMsg({ text, ok });
+    setTimeout(() => setToastMsg(null), 3500);
+  }
 
   async function loadRequests() {
     setLoading(true);
     try {
-      // Call the real AWS store requests endpoint
-      const response = await fetch("https://993toyh3x5.execute-api.ca-central-1.amazonaws.com/store/STORE-001/request", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
+      const res = await fetch("https://993toyh3x5.execute-api.ca-central-1.amazonaws.com/store/STORE-001/request", {
+        headers: { "Content-Type": "application/json" },
       });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      
-      // Transform AWS response to match admin page format
-      const transformedRequests = data.requests.map((req: any, index: number) => ({
-        id: index + 1,
-        sessionId: req.sessionId,
-        sku: req.sku,
-        kioskId: req.kioskId,
-        requestedSize: req.requestedSize,
-        requestedColor: req.requestedColor,
-        status: req.status,
-        requestId: req.requestId,
-        name: req.name,
-        price: req.price
-      }));
-
-      setRequests(transformedRequests);
-      setMessage(data.requests.length > 0 ? `Loaded ${data.requests.length} requests` : "No pending requests");
-      setMessageType("success");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setRequests(
+        data.requests.map((req: any, i: number) => ({
+          id: i + 1,
+          sessionId: req.sessionId,
+          sku: req.sku,
+          kioskId: req.kioskId,
+          requestedSize: req.requestedSize,
+          requestedColor: req.requestedColor,
+          status: req.status,
+          requestId: req.requestId,
+          name: req.name,
+          price: req.price,
+          createdAt: req.createdAt,
+        }))
+      );
     } catch (err) {
-      console.error(err);
-      setMessage("Failed to load requests.");
-      setMessageType("error");
+      showToast("Failed to load requests", false);
     } finally {
       setLoading(false);
     }
   }
 
-  async function updateRequestStatus(id: number, status: string, action?: string) {
-    const request = requests.find(r => r.id === id);
-    if (!request || !request.requestId) {
-      setMessage("Request not found");
-      setMessageType("error");
-      return;
-    }
-
-    // Prevent duplicate updates
-    const updateKey = `${request.requestId}-${status}-${action || ''}`;
-    if (requestUpdateInProgressRef.current.has(updateKey)) {
-      console.log("Request update already in progress, ignoring duplicate click");
-      return;
-    }
-
-    requestUpdateInProgressRef.current.add(updateKey);
-    setUpdatingRequestId(request.requestId);
-    setMessage("");
-
+  async function updateRequest(r: RequestItem, status?: string, action?: string) {
+    if (!r.requestId) return;
+    const key = `${r.requestId}-${status}-${action}`;
+    if (inProgressRef.current.has(key)) return;
+    inProgressRef.current.add(key);
+    setUpdatingId(r.requestId);
     try {
       const body: any = {};
       if (status) body.status = status;
       if (action) body.action = action;
-
-      const response = await fetch(`https://993toyh3x5.execute-api.ca-central-1.amazonaws.com/request/${request.requestId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to update request");
-      }
-
-      const result = await response.json();
-      setMessage(`Request ${request.requestId} updated to ${result.status}${result.autoScan ? ' (item delivered to kiosk)' : ''}`);
-      setMessageType("success");
-      
-      // Refresh requests after a short delay to see the update
-      setTimeout(() => {
-        loadRequests();
-      }, 500);
-    } catch (err) {
-      console.error(err);
-      setMessage(`Failed to update request: ${err instanceof Error ? err.message : 'Unknown error'}`);
-      setMessageType("error");
+      const res = await fetch(
+        `https://993toyh3x5.execute-api.ca-central-1.amazonaws.com/request/${r.requestId}`,
+        { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      );
+      if (!res.ok) throw new Error();
+      const result = await res.json();
+      showToast(`Request updated → ${result.status}${result.autoScan ? " · item auto-scanned" : ""}`);
+      setTimeout(loadRequests, 400);
+    } catch {
+      showToast("Failed to update request", false);
     } finally {
-      // Remove from in-progress set after 2 seconds
-      setTimeout(() => {
-        requestUpdateInProgressRef.current.delete(updateKey);
-        setUpdatingRequestId(null);
-      }, 2000);
+      setTimeout(() => { inProgressRef.current.delete(key); setUpdatingId(null); }, 2000);
     }
   }
 
-  const handleCancel = (id: number) => updateRequestStatus(id, "CANCELLED");
-  const handlePickup = (id: number) => updateRequestStatus(id, "CLAIMED");
-  const handleDeliver = (id: number) => updateRequestStatus(id, "", "delivered");
-
   useEffect(() => {
     loadRequests();
-    // Refresh every 5 seconds (reduced from 3)
-    const interval = setInterval(loadRequests, 5000);
-    return () => clearInterval(interval);
+    const t = setInterval(loadRequests, 5000);
+    return () => clearInterval(t);
   }, []);
 
-  const getStatusStyles = (status: string) => {
-    switch (status) {
-      case "Queued":
-        return "bg-[#EFE1CA] text-[#7A4F2B]";
-      case "PickedUp":
-        return "bg-[#E1D2C2] text-[#5B3D1C]";
-      case "Delivered":
-        return "bg-[#D8E3CF] text-[#2B5734]";
-      case "Cancelled":
-        return "bg-[#F4D5CB] text-[#8C3B2D]";
-      default:
-        return "bg-[#EEE3D2] text-[#5B3D1C]";
-    }
-  };
-
-  const formatStatus = (status: string) => {
-    if (status === "PickedUp") return "Picked Up";
-    return status;
-  };
+  const active   = requests.filter(r => r.status === "QUEUED" || r.status === "CLAIMED");
+  const done     = requests.filter(r => r.status === "DELIVERED" || r.status === "CANCELLED");
 
   return (
-    <div className="min-h-screen bg-[#F7E9D3]">
-      <div className="max-w-7xl mx-auto px-6 py-10">
-        <div className="rounded-3xl bg-[#FDF6E6] border border-[#E3C89C] shadow-[0_15px_50px_rgba(90,64,34,0.1)] px-8 py-10 mb-8">
-          <p className="text-sm uppercase tracking-[0.4em] text-[#B08858]">
-            Vestia Staff
-          </p>
-          <h1 className="text-5xl font-serif text-[#4F2F14] mt-4 mb-4">
-            Staff Dashboard
-          </h1>
-          <p className="text-[#8C6A4B] text-lg max-w-2xl">
-            Review active fitting room requests and keep guests updated as their
-            items move through the queue.
-          </p>
+    <div className="min-h-screen bg-[#F7EDE0]">
+      <Navbar />
+
+      {/* Toast */}
+      {toastMsg && (
+        <div className={`fixed top-20 right-6 z-50 animate-slide-in-elegant px-5 py-3 rounded-2xl shadow-xl text-sm font-semibold border ${
+          toastMsg.ok
+            ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+            : "bg-red-50 text-red-800 border-red-200"
+        }`}>
+          {toastMsg.ok ? "✓ " : "✕ "}{toastMsg.text}
+        </div>
+      )}
+
+      <div className="max-w-6xl mx-auto px-6 py-8">
+        {/* Header */}
+        <div className="flex items-end justify-between mb-8">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.3em] text-[#C17B3E] mb-2">Staff Dashboard</p>
+            <h1 className="text-4xl font-bold text-[#1C1007]">Request Queue</h1>
+            <p className="text-[#8C6A4B] mt-1">Live fitting room requests · auto-refreshes every 5s</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex gap-2">
+              {Object.entries(STATUS_CONFIG).slice(0, 2).map(([s, cfg]) => (
+                <div key={s} className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold ${cfg.badge}`}>
+                  <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />
+                  {requests.filter(r => r.status === s).length} {cfg.label}
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={loadRequests}
+              disabled={loading}
+              className="px-5 py-2.5 bg-[#4A3A2E] hover:bg-[#3B2A21] text-[#FDF7EF] rounded-xl text-sm font-semibold transition-all shadow-md hover:shadow-lg active:scale-95 disabled:opacity-50"
+            >
+              {loading ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
         </div>
 
-        {message && (
-          <div
-            className={`mb-6 p-4 rounded-2xl border-l-4 ${
-              messageType === "success"
-                ? "bg-[#E1F2DB] border-l-emerald-400 text-[#205530]"
-                : "bg-[#FDE7E2] border-l-[#E26C4C] text-[#7A2F1B]"
-            }`}
-          >
-            {message}
+        {/* Active Requests */}
+        {loading && active.length === 0 ? (
+          <div className="flex items-center justify-center h-48">
+            <div className="w-8 h-8 border-2 border-[#E5D5C8] border-t-[#4A3A2E] rounded-full animate-spin" />
+          </div>
+        ) : active.length === 0 ? (
+          <div className="bg-[#FDF7EF] rounded-3xl border-2 border-dashed border-[#E5D5C8] p-16 text-center mb-8">
+            <div className="w-16 h-16 rounded-full bg-[#F0E0CC] flex items-center justify-center mx-auto mb-4 text-2xl">🛍️</div>
+            <p className="text-[#4A3A2E] font-semibold text-lg">All clear</p>
+            <p className="text-[#8C6A4B] text-sm mt-1">New requests will appear here in real time</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-10">
+            {active.map((r) => {
+              const cfg = STATUS_CONFIG[r.status] ?? STATUS_CONFIG.QUEUED;
+              const busy = updatingId === r.requestId;
+              return (
+                <div
+                  key={r.requestId}
+                  className={`bg-[#FDF7EF] rounded-2xl border-2 border-[#E5D5C8] shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden ${r.status === "QUEUED" ? "ring-2 ring-amber-100" : "ring-2 ring-blue-100"}`}
+                >
+                  {/* Top accent stripe */}
+                  <div className={`h-1 w-full ${cfg.dot}`} />
+
+                  <div className="p-5">
+                    {/* Header row */}
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-widest text-[#8C6A4B]">Room {r.kioskId || "—"}</p>
+                        <p className="text-lg font-bold text-[#1C1007] mt-0.5">SKU {r.sku}</p>
+                      </div>
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold border ${cfg.badge} flex items-center gap-1.5`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                        {cfg.label}
+                      </span>
+                    </div>
+
+                    {/* Request details */}
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {r.requestedSize && (
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F5E9DA] rounded-xl border border-[#E5D5C8]">
+                          <span className="text-xs text-[#8C6A4B] font-medium">Size</span>
+                          <span className="text-sm font-bold text-[#1C1007]">{r.requestedSize}</span>
+                        </div>
+                      )}
+                      {r.requestedColor && (
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F5E9DA] rounded-xl border border-[#E5D5C8]">
+                          <span className="text-xs text-[#8C6A4B] font-medium">Color</span>
+                          <span className="text-sm font-bold text-[#1C1007] capitalize">{r.requestedColor}</span>
+                        </div>
+                      )}
+                      {!r.requestedSize && !r.requestedColor && (
+                        <span className="px-3 py-1.5 bg-[#F5E9DA] text-[#8C6A4B] text-xs rounded-xl border border-[#E5D5C8]">General request</span>
+                      )}
+                    </div>
+
+                    {/* Session + time */}
+                    <div className="flex items-center justify-between text-xs text-[#8C6A4B] mb-4">
+                      <span className="font-mono bg-[#F0E0CC] px-2 py-1 rounded-lg truncate max-w-[60%]">{r.sessionId}</span>
+                      <span>{timeAgo(r.createdAt)}</span>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex gap-2">
+                      {r.status === "QUEUED" && (
+                        <>
+                          <button
+                            onClick={() => updateRequest(r, "CANCELLED")}
+                            disabled={busy}
+                            className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 transition-all active:scale-95 disabled:opacity-50"
+                          >
+                            {busy ? <span className="flex justify-center"><LoadingSpinner size="sm" /></span> : "Cancel"}
+                          </button>
+                          <button
+                            onClick={() => updateRequest(r, "CLAIMED")}
+                            disabled={busy}
+                            className="flex-[2] py-2.5 rounded-xl text-sm font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all active:scale-95 disabled:opacity-50"
+                          >
+                            {busy ? <span className="flex justify-center"><LoadingSpinner size="sm" /></span> : "Pick Up →"}
+                          </button>
+                        </>
+                      )}
+                      {r.status === "CLAIMED" && (
+                        <button
+                          onClick={() => updateRequest(r, undefined, "delivered")}
+                          disabled={busy}
+                          className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-300 transition-all active:scale-95 disabled:opacity-50 animate-pulse-glow"
+                        >
+                          {busy ? <span className="flex justify-center"><LoadingSpinner size="sm" /></span> : "✓ Mark Delivered"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
-          <div>
-            <h2 className="text-3xl font-serif text-[#4F2F14]">
-              Active Requests{" "}
-              <span className="text-[#B08455]">({requests.length})</span>
-            </h2>
-            <p className="text-[#9A7551]">
-              Updated automatically every few seconds
-            </p>
-          </div>
-          <button
-            onClick={loadRequests}
-            disabled={loading}
-            className="px-8 py-3 bg-[#8A623C] text-[#FFF7EB] rounded-full font-semibold shadow-lg shadow-[#C09A72]/50 hover:bg-[#714E2F] transition disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {loading ? "Refreshing..." : "Refresh"}
-          </button>
-        </div>
-
-        {loading && requests.length === 0 ? (
-          <div className="bg-[#FFF8EC] rounded-3xl p-12 border border-[#EBD7B9] text-center shadow-inner">
-            <p className="text-[#B08455] text-lg">Loading requests...</p>
-          </div>
-        ) : requests.length === 0 ? (
-          <div className="bg-[#FFF8EC] rounded-3xl p-12 border border-[#EBD7B9] text-center shadow-inner">
-            <p className="text-[#9A7551] text-lg max-w-2xl mx-auto">
-              No active requests. They'll appear here in real time as customers
-              request items from the kiosk.
-            </p>
-          </div>
-        ) : (
-          <div className="rounded-3xl border border-[#E4CCAA] bg-[#FFF8EC] shadow-lg shadow-[#BA8E5F]/10 overflow-hidden">
-            <div className="w-full">
-              <table className="w-full">
-                <thead className="bg-[#F1DDC0] text-[#5B3D1C] text-left uppercase text-xs tracking-[0.2em]">
-                  <tr>
-                    {["ID", "Session ID", "SKU", "Kiosk", "Size", "Color", "Status", "Actions"].map(
-                      (heading) => (
-                        <th key={heading} className="px-8 py-4 font-semibold">
-                          {heading}
-                        </th>
-                      )
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {requests.map((r, index) => (
-                    <tr
-                      key={r.id}
-                      className={`${
-                        index % 2 === 0 ? "bg-[#FFF4E0]" : "bg-[#FFF8EC]"
-                      } border-t border-[#F2E0C6]`}
-                    >
-                      <td className="px-8 py-5 text-[#4F2F14] font-semibold">
-                        #{r.id}
-                      </td>
-                      <td className="px-8 py-5">
-                        <span className="text-xs tracking-wide font-mono bg-[#F8EAD1] text-[#8A623C] px-3 py-1 rounded-full">
-                          {r.sessionId}
-                        </span>
-                      </td>
-                      <td className="px-8 py-5 text-[#4F2F14] font-semibold">
-                        {r.sku}
-                      </td>
-                      <td className="px-8 py-5">
-                        <span className="text-xs tracking-wide font-mono bg-[#E8F4FD] text-[#1E40AF] px-3 py-1 rounded-full">
-                          {r.kioskId || "Unknown"}
-                        </span>
-                      </td>
-                      <td className="px-8 py-5 text-[#7A4F2B]">
-                        {r.requestedSize || "—"}
-                      </td>
-                      <td className="px-8 py-5 text-[#7A4F2B]">
-                        {r.requestedColor || "—"}
-                      </td>
-                      <td className="px-8 py-5">
-                        <span
-                          className={`inline-flex px-4 py-1.5 rounded-full text-sm font-semibold ${getStatusStyles(
-                            r.status
-                          )}`}
-                        >
-                          {formatStatus(r.status)}
-                        </span>
-                      </td>
-                      <td className="px-8 py-5">
-                        <div className="flex gap-2 items-center flex-wrap">
-                          {r.status === "QUEUED" && (
-                            <>
-                              <button
-                                onClick={() => handleCancel(r.id)}
-                                disabled={updatingRequestId === r.requestId}
-                                className="px-3 py-1.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 hover:bg-red-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition flex items-center gap-1"
-                              >
-                                {updatingRequestId === r.requestId ? (
-                                  <>
-                                    <LoadingSpinner size="sm" />
-                                    <span>Updating...</span>
-                                  </>
-                                ) : (
-                                  "Cancel"
-                                )}
-                              </button>
-                              <button
-                                onClick={() => handlePickup(r.id)}
-                                disabled={updatingRequestId === r.requestId}
-                                className="px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition flex items-center gap-1"
-                              >
-                                {updatingRequestId === r.requestId ? (
-                                  <>
-                                    <LoadingSpinner size="sm" />
-                                    <span>Updating...</span>
-                                  </>
-                                ) : (
-                                  "Picked Up"
-                                )}
-                              </button>
-                            </>
-                          )}
-                          {r.status === "CLAIMED" && (
-                            <button
-                              onClick={() => handleDeliver(r.id)}
-                              disabled={updatingRequestId === r.requestId}
-                              className="px-3 py-1.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 hover:bg-green-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition flex items-center gap-1"
-                            >
-                              {updatingRequestId === r.requestId ? (
-                                <>
-                                  <LoadingSpinner size="sm" />
-                                  <span>Updating...</span>
-                                </>
-                              ) : (
-                                "Delivered"
-                              )}
-                            </button>
-                          )}
-                          {(r.status === "DELIVERED" || r.status === "CANCELLED") && (
-                            <span className="text-xs text-gray-500">No actions</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        {/* Completed / Cancelled */}
+        {done.length > 0 && (
+          <details className="group">
+            <summary className="cursor-pointer list-none flex items-center gap-3 text-sm font-semibold text-[#8C6A4B] hover:text-[#4A3A2E] transition-colors mb-4 select-none">
+              <span className="w-5 h-5 rounded-full bg-[#E5D5C8] flex items-center justify-center text-xs group-open:rotate-90 transition-transform">▸</span>
+              Completed &amp; Cancelled ({done.length})
+            </summary>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {done.map((r) => {
+                const cfg = STATUS_CONFIG[r.status] ?? STATUS_CONFIG.CANCELLED;
+                return (
+                  <div key={r.requestId} className="bg-[#FDF7EF]/60 rounded-2xl border border-[#E5D5C8] p-4 opacity-70">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="font-semibold text-[#4A3A2E] text-sm">SKU {r.sku}</p>
+                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${cfg.badge}`}>{cfg.label}</span>
+                    </div>
+                    <div className="flex gap-2 text-xs text-[#8C6A4B]">
+                      {r.requestedSize && <span>Size {r.requestedSize}</span>}
+                      {r.requestedColor && <span className="capitalize">{r.requestedColor}</span>}
+                      <span className="ml-auto">{timeAgo(r.createdAt)}</span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          </div>
+          </details>
         )}
       </div>
     </div>
