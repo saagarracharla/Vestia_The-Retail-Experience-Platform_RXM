@@ -54,6 +54,30 @@ export interface RecommendationItem {
   imageUrl?: string;
 }
 
+export interface OutfitResult {
+  outfit: Record<string, RecommendationItem[]>; // category → top-2 recommendations
+  baseProductIds: string[];
+}
+
+export interface SavedOutfitItem {
+  productId: string;
+  name: string;
+  category: string;
+  color: string;
+  price: number;
+  imageUrl?: string;
+  source: "room" | "recommended";
+}
+
+export interface SavedOutfit {
+  outfitId: string;
+  shareCode: string;
+  sessionId?: string;
+  customerId?: string;
+  items: SavedOutfitItem[];
+  createdAt: string;
+}
+
 export interface AnalyticsData {
   period: { days: number; from: string; to: string };
   totalSessions: number;
@@ -175,6 +199,46 @@ export class VestiaAPI {
       ...rec,
       imageUrl: getImageUrl(rec.productId),
     }));
+  }
+
+  static async getOutfitRecommendations(
+    productIds: string[],
+    sessionId?: string,
+    customerId?: string,
+    sessionPreferences?: SessionPreferences
+  ): Promise<OutfitResult> {
+    const payload: Record<string, unknown> = { productIds };
+    if (sessionId) payload.sessionId = sessionId;
+    if (customerId) payload.customerId = customerId;
+    if (sessionPreferences) payload.sessionPreferences = sessionPreferences;
+
+    const result = await this.request<OutfitResult>("/recommend", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+
+    // Attach image URLs to each recommendation
+    const outfit: Record<string, RecommendationItem[]> = {};
+    for (const [cat, items] of Object.entries(result.outfit)) {
+      outfit[cat] = items.map(item => ({ ...item, imageUrl: getImageUrl(item.productId) }));
+    }
+    return { outfit, baseProductIds: result.baseProductIds };
+  }
+
+  // Outfit Save & Share API
+  static async saveOutfit(data: {
+    sessionId?: string;
+    customerId?: string;
+    items: SavedOutfitItem[];
+  }): Promise<{ outfitId: string; shareCode: string }> {
+    return this.request<{ outfitId: string; shareCode: string }>("/outfit", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  static async getOutfit(shareCode: string): Promise<SavedOutfit> {
+    return this.request<SavedOutfit>(`/outfit/${shareCode}`);
   }
 
   // Customer Profile API

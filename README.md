@@ -21,6 +21,7 @@ npm run dev
 | `http://localhost:3000/admin` | Staff request dashboard |
 | `http://localhost:3000/analytics` | Store analytics |
 | `http://localhost:3000/analytics/store` | Store-level analytics |
+| `http://localhost:3000/outfit/{shareCode}` | Shared outfit view (mobile-friendly) |
 
 ---
 
@@ -54,7 +55,7 @@ Vestia_The-Retail-Experience-Platform_RXM/
 
 ### Backend (AWS — `ca-central-1`)
 - **API Gateway**: HTTP API v2 (`vestia-api`, id: `993toyh3x5`)
-- **Lambda**: 12 active functions, Node.js 22.x ESM modules
+- **Lambda**: 13 active functions, Node.js 22.x ESM modules
 - **DynamoDB**: 4 tables — `VestiaSessions`, `ProductCatalog`, `CompatibilityStats`, `CustomerProfiles`
 - **S3**: `vestia-product-images` (44k product images), `vestia-product-data-ca` (raw Myntra JSONs)
 
@@ -70,6 +71,8 @@ Full infrastructure details: [AWS_ARCHITECTURE.md](./AWS_ARCHITECTURE.md)
 - **Customer Profiles** — loyalty email links purchase history; `derivedStyle` (topColors, dominantStyle, avgPrice) personalises recommendations
 - **In-Session Feedback** — thumbs up/down and colour preference signals adjust recommendations live
 - **Session Preferences** — size, colour, style preferences persist within a session
+- **Mix & Match** — select multiple scanned items, Lambda scores candidates against all simultaneously and fills in missing outfit categories (top/bottom/shoes/accessory)
+- **Save & Share Outfits** — saves complete outfit to DynamoDB, generates a 6-char share code; shareable URL at `/outfit/{shareCode}` renders the full outfit on any device
 - **Staff Dashboard** — real-time request queue with claim/deliver workflow
 - **Store Analytics** — sessions, scans, requests, fulfillment rate, top items/sizes/colours over 7/30/90-day windows
 

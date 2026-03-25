@@ -27,6 +27,7 @@ npx tsc --noEmit  # type check
 | `/admin` | `app/admin/page.tsx` | Staff request dashboard |
 | `/analytics` | `app/analytics/page.tsx` | Store analytics |
 | `/analytics/store` | `app/analytics/store/page.tsx` | Store-level analytics breakdown |
+| `/outfit/{shareCode}` | `app/outfit/[shareCode]/page.tsx` | Shared outfit view (mobile-friendly) |
 
 ## Source Structure
 
@@ -38,9 +39,11 @@ src/
 │   ├── page.tsx                    # Welcome / kiosk home
 │   ├── kiosk/session/page.tsx      # Main kiosk session page
 │   ├── admin/page.tsx              # Staff dashboard
-│   └── analytics/
-│       ├── page.tsx                # Analytics dashboard
-│       └── store/page.tsx          # Store analytics
+│   ├── analytics/
+│   │   ├── page.tsx                # Analytics dashboard
+│   │   └── store/page.tsx          # Store analytics
+│   └── outfit/
+│       └── [shareCode]/page.tsx    # Public shared outfit view
 │
 ├── components/
 │   ├── ColourDot.tsx               # Coloured circle for colour display
@@ -80,6 +83,9 @@ VestiaAPI.upsertCustomerProfile(customerId, updates)
 VestiaAPI.submitSessionFeedback(sessionId, feedback)
 VestiaAPI.getAnalytics(days?)
 VestiaAPI.getStoreRequests(storeId)
+VestiaAPI.getOutfitRecommendations(productIds[], sessionId?, customerId?, sessionPreferences?)
+VestiaAPI.saveOutfit({ sessionId?, customerId?, items })
+VestiaAPI.getOutfit(shareCode)
 ```
 
 **API Base**: `https://993toyh3x5.execute-api.ca-central-1.amazonaws.com`
@@ -95,5 +101,7 @@ The kiosk session page (`/kiosk/session`) is the core of the customer experience
 - **Customer login modal** — link loyalty email to load purchase history and `derivedStyle`; re-fetches recommendations with customer context
 - **Request modal** — customer requests a size/colour change; creates REQUEST event (QUEUED → CLAIMED → DELIVERED)
 - **In-session feedback** — thumbs up/down + colour preference on recommendation cards; adjusts live scoring
+- **Mix & Match mode** — select multiple scanned items, calls `/recommend` with `productIds[]`, receives outfit completions for all missing categories (top/bottom/shoes/accessory) scored against all selected items simultaneously
+- **Save & Share outfit** — after building an outfit, saves it to DynamoDB via POST `/outfit`, generates a 6-char share code; customer photographs the screen; `/outfit/{shareCode}` renders the full outfit on any device without authentication
 - **Session timer** — live elapsed time display
 - **End session modal** — collects overall and per-item feedback before closing

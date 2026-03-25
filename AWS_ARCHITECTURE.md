@@ -23,6 +23,8 @@
 | GET | `/analytics` | `vestia-analytics-get` | Store analytics (supports `?days=7|30|90`) |
 | GET | `/customer/{customerId}` | `vestia-customer-profile` | Fetch customer profile + derivedStyle |
 | PUT | `/customer/{customerId}` | `vestia-customer-profile` | Create or update customer profile |
+| POST | `/outfit` | `vestia-outfit` | Save an outfit, returns `{ outfitId, shareCode }` |
+| GET | `/outfit/{shareCode}` | `vestia-outfit` | Fetch a saved outfit by share code |
 
 ---
 
@@ -44,6 +46,7 @@ Event-sourced single table storing all session activity.
 | `SESSION#{sessionId}` | `FEEDBACK#{timestamp}` | Recommendation engine |
 | `SESSION#{sessionId}` | `PREF#{timestamp}` | Recommendation engine |
 | `STORE#{storeId}` | `REQUEST#{requestId}` | Staff dashboard |
+| `OUTFIT#{shareCode}` | `META` | Saved outfit (Save & Share) |
 
 #### Entity Schemas
 

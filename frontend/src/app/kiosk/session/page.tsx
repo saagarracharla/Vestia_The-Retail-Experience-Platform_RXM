@@ -8,7 +8,7 @@ import SessionTimer from "@/components/SessionTimer";
 import Notification from "@/components/Notification";
 import EndSessionModal, { SessionFeedback } from "@/components/EndSessionModal";
 import LoadingSpinner from "@/components/LoadingSpinner";
-import { VestiaAPI, RecommendationItem, ItemWithProduct, SessionPreferences, CustomerProfile } from "@/lib/api";
+import { VestiaAPI, RecommendationItem, ItemWithProduct, SessionPreferences, CustomerProfile, OutfitResult, SavedOutfitItem } from "@/lib/api";
 
 type Item = ItemWithProduct;
 
@@ -82,6 +82,16 @@ export default function SessionKioskPage() {
   const [prefShoesSize, setPrefShoesSize] = useState("");
   const [prefColors, setPrefColors] = useState<string[]>([]);
   const [prefStyles, setPrefStyles] = useState<string[]>([]);
+
+  // Mix & Match state
+  const [mixMatchMode, setMixMatchMode] = useState(false);
+  const [outfitSelections, setOutfitSelections] = useState<Set<string>>(new Set());
+  const [outfitResult, setOutfitResult] = useState<OutfitResult | null>(null);
+  const [loadingOutfit, setLoadingOutfit] = useState(false);
+
+  // Save & Share state
+  const [savingOutfit, setSavingOutfit] = useState(false);
+  const [savedShareCode, setSavedShareCode] = useState<string | null>(null);
 
   // Cleanup debounce timer on unmount
   useEffect(() => {
@@ -479,6 +489,100 @@ export default function SessionKioskPage() {
     setPrefStyles(prev => prev.includes(style) ? prev.filter(s => s !== style) : [...prev, style]);
   }
 
+  // ── Mix & Match ────────────────────────────────────────────────────────────
+
+  function enterMixMatchMode() {
+    setMixMatchMode(true);
+    setOutfitResult(null);
+    // Pre-select the currently displayed item
+    setOutfitSelections(mainItem ? new Set([mainItem.sku]) : new Set());
+  }
+
+  function exitMixMatchMode() {
+    setMixMatchMode(false);
+    setOutfitResult(null);
+    setOutfitSelections(new Set());
+  }
+
+  function toggleOutfitSelection(sku: string) {
+    setOutfitSelections(prev => {
+      const next = new Set(prev);
+      if (next.has(sku)) next.delete(sku); else next.add(sku);
+      return next;
+    });
+  }
+
+  async function handleBuildOutfit() {
+    if (outfitSelections.size === 0) return;
+    setLoadingOutfit(true);
+    try {
+      const result = await VestiaAPI.getOutfitRecommendations(
+        Array.from(outfitSelections),
+        sessionId || undefined,
+        customerId || undefined,
+        sessionPreferences || undefined
+      );
+      setOutfitResult(result);
+    } catch (err) {
+      console.error("Failed to build outfit:", err);
+    } finally {
+      setLoadingOutfit(false);
+    }
+  }
+
+  async function handleSaveOutfit() {
+    if (!outfitResult) return;
+    setSavingOutfit(true);
+    try {
+      const outfitItems: SavedOutfitItem[] = [];
+
+      // In-room items (already scanned)
+      for (const sku of outfitSelections) {
+        const item = items.find(i => i.sku === sku);
+        if (item?.product) {
+          outfitItems.push({
+            productId: item.sku,
+            name: item.product.name,
+            category: item.product.category,
+            color: item.product.color,
+            price: item.product.price,
+            imageUrl: item.product.imageUrl,
+            source: "room",
+          });
+        }
+      }
+
+      // AI-recommended completions (top pick per missing category)
+      for (const [, recs] of Object.entries(outfitResult.outfit)) {
+        const rec = recs[0];
+        if (!rec) continue;
+        const alreadyCovered = outfitItems.some(i => i.category === rec.category);
+        if (!alreadyCovered) {
+          outfitItems.push({
+            productId: rec.productId,
+            name: rec.name,
+            category: rec.category,
+            color: rec.color,
+            price: rec.price,
+            imageUrl: rec.imageUrl,
+            source: "recommended",
+          });
+        }
+      }
+
+      const { shareCode } = await VestiaAPI.saveOutfit({
+        sessionId: sessionId || undefined,
+        customerId: customerId || undefined,
+        items: outfitItems,
+      });
+      setSavedShareCode(shareCode);
+    } catch (err) {
+      console.error("Failed to save outfit:", err);
+    } finally {
+      setSavingOutfit(false);
+    }
+  }
+
   // Map frontend SKU to backend productId
   function getProductIdForSku(sku: string): string {
     // Use SKU directly as productId since ProductCatalog uses SKU as productId
@@ -667,16 +771,40 @@ export default function SessionKioskPage() {
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-[#E5D5C8]/30 flex-shrink-0">
               <div>
-                <h1 className="text-2xl font-medium text-[#3B2A21]">Your Items</h1>
-                <p className="text-sm text-[#8C6A4B] mt-1">{items.length} item{items.length !== 1 ? 's' : ''} scanned</p>
+                <h1 className="text-2xl font-medium text-[#3B2A21]">
+                  {mixMatchMode ? "Build Your Outfit" : "Your Items"}
+                </h1>
+                <p className="text-sm text-[#8C6A4B] mt-1">
+                  {mixMatchMode
+                    ? `${outfitSelections.size} item${outfitSelections.size !== 1 ? "s" : ""} selected — tap to include`
+                    : `${items.length} item${items.length !== 1 ? "s" : ""} scanned`}
+                </p>
               </div>
               <div className="flex gap-3">
-                <button
-                  onClick={() => setIsEndSessionModalOpen(true)}
-                  className="px-4 py-2 border border-[#E5D5C8] text-[#3B2A21] rounded-xl hover:bg-[#F5E9DA] transition-all duration-200 transform hover:scale-105 active:scale-95"
-                >
-                  End Session
-                </button>
+                {items.length >= 1 && !mixMatchMode && (
+                  <button
+                    onClick={enterMixMatchMode}
+                    className="px-4 py-2 bg-[#F5E9DA] border border-[#4A3A2E]/30 text-[#4A3A2E] rounded-xl font-medium text-sm hover:bg-[#EDD9C8] transition-all duration-200"
+                  >
+                    Mix & Match
+                  </button>
+                )}
+                {mixMatchMode && (
+                  <button
+                    onClick={exitMixMatchMode}
+                    className="px-4 py-2 border border-[#E5D5C8] text-[#3B2A21] rounded-xl text-sm hover:bg-[#F5E9DA] transition-all duration-200"
+                  >
+                    Cancel
+                  </button>
+                )}
+                {!mixMatchMode && (
+                  <button
+                    onClick={() => setIsEndSessionModalOpen(true)}
+                    className="px-4 py-2 border border-[#E5D5C8] text-[#3B2A21] rounded-xl hover:bg-[#F5E9DA] transition-all duration-200 transform hover:scale-105 active:scale-95"
+                  >
+                    End Session
+                  </button>
+                )}
                 <SessionTimer startTime={sessionStartTime} />
               </div>
             </div>
@@ -742,7 +870,15 @@ export default function SessionKioskPage() {
                   {/* Hero Item Display */}
                   {mainItem && (
                     <div className="flex-shrink-0 mb-4">
-                      <div className="bg-gradient-to-br from-[#FDF7EF] to-[#F5E9DA] rounded-2xl p-6 border border-[#E5D5C8]">
+                      <div
+                        className={`relative bg-gradient-to-br from-[#FDF7EF] to-[#F5E9DA] rounded-2xl p-6 border-2 transition-all duration-200 ${mixMatchMode ? "cursor-pointer " + (outfitSelections.has(mainItem.sku) ? "border-[#4A3A2E] shadow-md" : "border-[#E5D5C8] hover:border-[#4A3A2E]/40") : "border-[#E5D5C8]"}`}
+                        onClick={() => mixMatchMode && toggleOutfitSelection(mainItem.sku)}
+                      >
+                        {mixMatchMode && (
+                          <div className={`absolute top-3 right-3 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${outfitSelections.has(mainItem.sku) ? "bg-[#4A3A2E] border-[#4A3A2E]" : "bg-white border-[#C0A898]"}`}>
+                            {outfitSelections.has(mainItem.sku) && <span className="text-white text-xs font-bold">✓</span>}
+                          </div>
+                        )}
                         <div className="flex gap-6">
                           <div className="w-52 h-72 bg-white rounded-xl shadow-sm flex items-center justify-center flex-shrink-0 overflow-hidden border border-[#E5D5C8]/30">
                             {mainItem.product?.imageUrl ? (
@@ -792,6 +928,11 @@ export default function SessionKioskPage() {
                           </div>
                         </div>
                       </div>
+                      {mixMatchMode && (
+                        <p className="text-xs text-center text-[#8C6A4B] mt-2">
+                          {outfitSelections.has(mainItem.sku) ? "Selected for outfit" : "Tap to add to outfit"}
+                        </p>
+                      )}
                     </div>
                   )}
 
@@ -806,13 +947,19 @@ export default function SessionKioskPage() {
                         >
                           {previousItems.map((item, index) => {
                             const originalIndex = items.findIndex(i => i === item);
+                            const isSelectedForOutfit = outfitSelections.has(item.sku);
                             return (
-                              <div 
-                                key={`${item.sku}-${index}`} 
-                                onClick={() => setSelectedMainIndex(originalIndex)}
-                                className="bg-white rounded-xl p-4 border border-[#E5D5C8] cursor-pointer hover:shadow-md hover:border-[#4A3A2E]/20 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] flex-shrink-0"
+                              <div
+                                key={`${item.sku}-${index}`}
+                                onClick={() => mixMatchMode ? toggleOutfitSelection(item.sku) : setSelectedMainIndex(originalIndex)}
+                                className={`relative bg-white rounded-xl p-4 border-2 cursor-pointer transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] flex-shrink-0 ${mixMatchMode ? (isSelectedForOutfit ? "border-[#4A3A2E] shadow-md" : "border-[#E5D5C8] hover:border-[#4A3A2E]/40") : "border-[#E5D5C8] hover:shadow-md hover:border-[#4A3A2E]/20"}`}
                                 style={{ minWidth: '280px', height: '160px' }}
                               >
+                                {mixMatchMode && (
+                                  <div className={`absolute top-2 right-2 w-5 h-5 rounded-full border-2 flex items-center justify-center z-10 ${isSelectedForOutfit ? "bg-[#4A3A2E] border-[#4A3A2E]" : "bg-white border-[#C0A898]"}`}>
+                                    {isSelectedForOutfit && <span className="text-white text-xs font-bold">✓</span>}
+                                  </div>
+                                )}
                                 <div className="flex gap-4 h-full">
                                   <div className="w-20 h-full bg-[#E5D5C8] rounded-xl overflow-hidden flex-shrink-0">
                                     {item.product?.imageUrl ? (
@@ -912,10 +1059,163 @@ export default function SessionKioskPage() {
         {/* Right Column - 45% */}
         <div className="relative h-full overflow-hidden" style={{ flexBasis: "45%", width: "45%", maxWidth: "45%" }}>
           <div className="absolute inset-0 flex flex-col bg-[#FDF7EF] rounded-2xl border border-[#E5D5C8] p-4">
+
+            {/* ── Mix & Match Outfit Board ───────────────────────────────── */}
+            {mixMatchMode ? (
+              <>
+                <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                  <div>
+                    <h2 className="text-2xl font-medium text-[#3B2A21]">
+                      {outfitResult ? "Your Outfit" : "Select Items"}
+                    </h2>
+                    <p className="text-sm text-[#8C6A4B]">
+                      {outfitResult ? "AI-curated complete look" : `${outfitSelections.size} item${outfitSelections.size !== 1 ? "s" : ""} selected`}
+                    </p>
+                  </div>
+                </div>
+
+                {!outfitResult && !loadingOutfit ? (
+                  <div className="flex-1 flex flex-col">
+                    <p className="text-sm text-[#8C6A4B] mb-4">
+                      Tap items on the left to include them in your outfit. We&apos;ll find what&apos;s missing.
+                    </p>
+                    <div className="flex-1" />
+                    <button
+                      onClick={handleBuildOutfit}
+                      disabled={outfitSelections.size === 0}
+                      className="w-full py-4 bg-[#4A3A2E] text-white rounded-xl font-semibold text-lg hover:bg-[#3B2A21] disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md"
+                    >
+                      Build Outfit
+                    </button>
+                  </div>
+                ) : loadingOutfit ? (
+                  <div className="flex-1 flex items-center justify-center">
+                    <div className="text-center">
+                      <div className="w-8 h-8 border-2 border-[#4A3A2E]/20 border-t-[#4A3A2E] rounded-full animate-spin mx-auto mb-4"></div>
+                      <p className="text-[#3B2A21]/70">Building your perfect outfit...</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex-1 overflow-y-auto premium-scroll flex flex-col gap-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      {(["top", "bottom", "shoes", "accessory"] as const).map(cat => {
+                        const inRoomItem = items.find(item =>
+                          outfitSelections.has(item.sku) &&
+                          (item.product?.category || "").toLowerCase() === cat
+                        );
+                        const recommended = outfitResult?.outfit?.[cat]?.[0];
+                        const catLabel = cat === "accessory" ? "Accessory" : cat.charAt(0).toUpperCase() + cat.slice(1);
+
+                        if (inRoomItem) {
+                          return (
+                            <div key={cat} className="bg-white rounded-xl border-2 border-emerald-400 p-3 flex flex-col">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-semibold text-[#3B2A21]/50 uppercase tracking-wide">{catLabel}</span>
+                                <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">In Room</span>
+                              </div>
+                              <div className="w-full h-24 bg-[#E5D5C8] rounded-lg overflow-hidden mb-2">
+                                {inRoomItem.product?.imageUrl && (
+                                  <img src={inRoomItem.product.imageUrl} alt={inRoomItem.product.name || ""} className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = "none"; }} />
+                                )}
+                              </div>
+                              <p className="text-xs font-medium text-[#3B2A21] truncate">{inRoomItem.product?.name || "Unknown"}</p>
+                              <p className="text-xs text-[#8C6A4B]">${inRoomItem.product?.price || ""}</p>
+                            </div>
+                          );
+                        }
+
+                        if (recommended) {
+                          return (
+                            <div key={cat} className="bg-white rounded-xl border border-[#E5D5C8] p-3 flex flex-col">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-semibold text-[#3B2A21]/50 uppercase tracking-wide">{catLabel}</span>
+                                {recommended.score > 0 && (
+                                  <span className="text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full font-medium">{Math.round(recommended.score * 100)}%</span>
+                                )}
+                              </div>
+                              <div className="w-full h-24 bg-[#E5D5C8] rounded-lg overflow-hidden mb-2">
+                                {recommended.imageUrl && (
+                                  <img src={recommended.imageUrl} alt={recommended.name} loading="lazy" className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = "none"; }} />
+                                )}
+                              </div>
+                              <p className="text-xs font-medium text-[#3B2A21] truncate mb-0.5">{recommended.name}</p>
+                              <p className="text-xs text-[#8C6A4B] mb-2">${recommended.price}</p>
+                              <button
+                                onClick={() => handleRequestSize({
+                                  sku: recommended.productId,
+                                  entityType: "SCAN" as const,
+                                  sessionId: sessionId || "demo_session",
+                                  createdAt: new Date().toISOString(),
+                                  product: { productId: recommended.productId, name: recommended.name, color: recommended.color, category: recommended.category, price: recommended.price, articleType: recommended.articleType, gender: "unisex" }
+                                })}
+                                className="w-full text-xs border border-[#4A3A2E] text-[#4A3A2E] rounded-lg py-1.5 hover:bg-[#4A3A2E] hover:text-[#FDF7EF] transition-all"
+                              >
+                                Request
+                              </button>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div key={cat} className="bg-[#F5E9DA]/60 rounded-xl border border-dashed border-[#E5D5C8] p-3 flex flex-col items-center justify-center min-h-40">
+                            <span className="text-xs font-semibold text-[#3B2A21]/30 uppercase tracking-wide">{catLabel}</span>
+                            <span className="text-xs text-[#8C6A4B]/50 mt-1">Not found</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* Save & Share */}
+                    {!savedShareCode ? (
+                      <button
+                        onClick={handleSaveOutfit}
+                        disabled={savingOutfit}
+                        className="w-full mt-2 py-3 bg-[#4A3A2E] text-white rounded-xl font-semibold hover:bg-[#3B2A21] disabled:opacity-50 transition-all shadow-md flex items-center justify-center gap-2"
+                      >
+                        {savingOutfit ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            <span>Saving...</span>
+                          </>
+                        ) : "Save & Share Outfit"}
+                      </button>
+                    ) : (
+                      <div className="mt-2 bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex flex-col gap-2">
+                        <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Outfit Saved!</p>
+                        <p className="text-sm text-[#3B2A21]">Open on your phone:</p>
+                        <div className="bg-white rounded-lg px-4 py-3 border border-emerald-200 text-center">
+                          <span className="text-3xl font-bold tracking-[0.3em] text-[#4A3A2E]">{savedShareCode}</span>
+                        </div>
+                        <p className="text-xs text-[#8C6A4B] text-center break-all">
+                          {typeof window !== "undefined" ? `${window.location.origin}/outfit/${savedShareCode}` : ""}
+                        </p>
+                        <button
+                          onClick={() => {
+                            if (typeof window !== "undefined") {
+                              navigator.clipboard?.writeText(`${window.location.origin}/outfit/${savedShareCode}`);
+                            }
+                          }}
+                          className="w-full py-2 border border-[#4A3A2E] text-[#4A3A2E] text-sm rounded-lg hover:bg-[#4A3A2E] hover:text-white transition-all"
+                        >
+                          Copy Link
+                        </button>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => { setOutfitResult(null); setSavedShareCode(null); }}
+                      className="w-full mt-2 py-2.5 border border-[#E5D5C8] text-[#3B2A21] text-sm rounded-xl hover:bg-[#F5E9DA] transition-all"
+                    >
+                      Rebuild Outfit
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              /* ── Normal Recommendations View ───────────────────────────── */
+              <>
             <div className="flex items-center justify-between mb-4 flex-shrink-0">
               <h2 className="text-2xl font-medium text-[#3B2A21]">Complete Your Look</h2>
             </div>
-            
+
             {/* Category Filter Pills - More Subtle */}
             {mainItem && (
               <div className="flex gap-2 mb-4 flex-shrink-0">
@@ -1132,6 +1432,8 @@ export default function SessionKioskPage() {
                   </div>
                 )}
               </div>
+            )}
+              </>
             )}
           </div>
         </div>

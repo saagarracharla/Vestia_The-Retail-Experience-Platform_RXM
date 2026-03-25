@@ -1,6 +1,6 @@
 # Vestia Backend
 
-Serverless backend for Vestia — 12 AWS Lambda functions (Node.js 22.x ESM) behind API Gateway HTTP API v2.
+Serverless backend for Vestia — 13 AWS Lambda functions (Node.js 22.x ESM) behind API Gateway HTTP API v2.
 
 **Region**: `ca-central-1`
 **API ID**: `993toyh3x5`
@@ -14,6 +14,7 @@ backend/
 │   ├── vestia-analytics-get/       # GET /analytics
 │   ├── vestia-customer-profile/    # GET + PUT /customer/{id}
 │   ├── vestia-product-get/         # GET /product/{sku}
+│   ├── vestia-outfit/              # POST /outfit + GET /outfit/{shareCode}
 │   ├── vestia-recommend/           # POST /recommend
 │   ├── vestia-request-claim/       # PATCH /request/{id}/claim
 │   ├── vestia-request-get/         # GET /store/{id}/request
@@ -78,8 +79,15 @@ Returns a single product from `ProductCatalog` including all S3-enriched attribu
 **`vestia-recommend`** — `POST /recommend`
 Full recommendation pipeline — see [AWS_ARCHITECTURE.md](../AWS_ARCHITECTURE.md) for the complete algorithm breakdown.
 
-Inputs: `{ productId, targetCategory, gender?, sessionId?, customerId?, sessionPreferences? }`
-Returns: top-5 scored products with diversity re-ranking.
+**Single-item mode**: `{ productId, targetCategory, gender?, sessionId?, customerId?, sessionPreferences? }`
+Returns top-5 scored products with diversity re-ranking for one target category.
+
+**Mix & Match (outfit) mode**: `{ productIds: string[], sessionId?, customerId?, sessionPreferences? }`
+Scores candidates against ALL selected base items simultaneously (averaged), fills missing outfit categories (top/bottom/shoes/accessory), returns `{ outfit: Record<category, RecommendationItem[]>, baseProductIds }`.
+
+**`vestia-outfit`** — `POST /outfit` + `GET /outfit/{shareCode}`
+- POST: saves a complete outfit to `VestiaSessions` under `PK: OUTFIT#{shareCode}`, `SK: META`. Generates a 6-char unambiguous share code (no 0/O/1/I). Returns `{ outfitId, shareCode }`.
+- GET: fetches a saved outfit by share code.
 
 ### Customer & Analytics
 

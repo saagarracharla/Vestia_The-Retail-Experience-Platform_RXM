@@ -50,14 +50,21 @@ export const handler = async (event) => {
   }
 
   try {
+    const body = JSON.parse(event.body || "{}");
     const {
       productId,
+      productIds,        // outfit mode — array of SKUs already in room
       targetCategory,
       gender,
       sessionId,
       customerId,        // optional — load customer profile
       sessionPreferences, // optional — inline prefs: { preferredSizes, preferredColors, preferredStyles }
-    } = JSON.parse(event.body || "{}");
+    } = body;
+
+    // ── OUTFIT MODE: score candidates against multiple base items ─────────────
+    if (productIds && Array.isArray(productIds) && productIds.length > 0) {
+      return await handleOutfitMode({ productIds, gender, sessionId, customerId, sessionPreferences });
+    }
 
     if (!productId) {
       return res(400, { error: "productId is required" });
@@ -512,3 +519,121 @@ function computeScore(candidate, base, { colorCompat, articleCompat, usageCompat
 }
 
 function clamp(v) { return Math.min(1, Math.max(0, v)); }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Outfit Mode — score candidates against ALL selected base items, fill missing
+// categories, return top-2 per missing category
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleOutfitMode({ productIds, gender, sessionId, customerId, sessionPreferences }) {
+  // 1. Fetch all base products
+  const baseProducts = (await Promise.all(productIds.map(getProduct))).filter(Boolean);
+  if (baseProducts.length === 0) return res(404, { error: "No products found" });
+
+  // 2. Fetch compat stats for each base product (6 dimensions each)
+  const compatDataArray = await Promise.all(baseProducts.map(async (bp) => {
+    const [colorCompat, articleCompat, usageCompat, patternCompat, fabricCompat, fitCompat] = await Promise.all([
+      bp.color       ? getCompatScores(`COLOR#${bp.color.toLowerCase().trim()}`)       : {},
+      bp.articleType ? getCompatScores(`ARTICLE#${bp.articleType.toLowerCase().trim()}`) : {},
+      bp.usage       ? getCompatScores(`USAGE#${bp.usage.toLowerCase().trim()}`)       : {},
+      bp.pattern     ? getCompatScores(`PATTERN#${bp.pattern.toLowerCase().trim()}`)   : {},
+      bp.fabric      ? getCompatScores(`FABRIC#${bp.fabric.toLowerCase().trim()}`)     : {},
+      bp.fit         ? getCompatScores(`FIT#${bp.fit.toLowerCase().trim()}`)           : {},
+    ]);
+    return { colorCompat, articleCompat, usageCompat, patternCompat, fabricCompat, fitCompat };
+  }));
+
+  // 3. Session context
+  const excludeSkus = new Set(productIds);
+  let sessionFeedback = {};
+  let mergedSessionPrefs = sessionPreferences || null;
+
+  if (sessionId) {
+    const [scannedSkus, feedbackEvents, prefEvents] = await Promise.all([
+      getSessionScannedSkus(sessionId),
+      getSessionFeedbackSignals(sessionId),
+      getSessionPreferences(sessionId),
+    ]);
+    scannedSkus.forEach(sku => excludeSkus.add(sku));
+    sessionFeedback = feedbackEvents;
+    if (!mergedSessionPrefs && prefEvents) mergedSessionPrefs = prefEvents;
+  }
+
+  // 4. Co-scan affinity for primary item
+  const coScanAffinity = await buildCoScanAffinity(productIds[0]);
+
+  // 5. Customer profile
+  let customerProfile = null;
+  if (customerId) customerProfile = await getCustomerProfile(customerId);
+  const prefs = mergePreferences(customerProfile, mergedSessionPrefs);
+
+  // 6. Determine missing categories
+  const presentCategories = new Set(baseProducts.map(bp => (bp.category || "").toLowerCase()));
+  const allCategories = ["top", "bottom", "shoes", "accessory"];
+  const missingCategories = allCategories.filter(c => !presentCategories.has(c));
+
+  if (missingCategories.length === 0) {
+    return res(200, { outfit: {}, baseProductIds: productIds, message: "Outfit is already complete" });
+  }
+
+  // 7. Get candidates (filter by gender)
+  const inferredGender = gender || baseProducts.find(bp => bp.gender)?.gender || customerProfile?.gender;
+  const candidates = await getCandidates(inferredGender, excludeSkus);
+
+  // 8. Score each candidate against ALL base items — average the scores
+  const outfitResult = {};
+  for (const cat of missingCategories) {
+    const catCandidates = candidates.filter(c => (c.category || "").toLowerCase() === cat);
+
+    const scored = catCandidates.map(candidate => {
+      let totalScore = 0;
+      let count = 0;
+      for (let i = 0; i < baseProducts.length; i++) {
+        if (!compatDataArray[i]) continue;
+        const s = computeScore(candidate, baseProducts[i], {
+          ...compatDataArray[i],
+          coScanAffinity,
+          sessionFeedback,
+          prefs,
+        });
+        totalScore += s;
+        count++;
+      }
+      return {
+        productId: candidate.productId,
+        name: candidate.name,
+        category: candidate.category,
+        articleType: candidate.articleType,
+        color: candidate.color,
+        price: candidate.price,
+        score: Math.round((count > 0 ? totalScore / count : 0) * 1000) / 1000,
+      };
+    }).sort((a, b) => b.score - a.score);
+
+    // Diversity re-rank: max 1 per article type, max 2 per colour — pick top 2
+    const selected = [];
+    const articleTypeCount = {};
+    const colorCount = {};
+    for (const item of scored) {
+      const art   = (item.articleType || "other").toLowerCase();
+      const color = (item.color       || "other").toLowerCase();
+      if ((articleTypeCount[art] || 0) < 1 && (colorCount[color] || 0) < 2) {
+        selected.push(item);
+        articleTypeCount[art]   = (articleTypeCount[art]   || 0) + 1;
+        colorCount[color]       = (colorCount[color]       || 0) + 1;
+      }
+      if (selected.length >= 2) break;
+    }
+    // Backfill if needed
+    if (selected.length < 2) {
+      const ids = new Set(selected.map(i => i.productId));
+      for (const item of scored) {
+        if (!ids.has(item.productId)) { selected.push(item); if (selected.length >= 2) break; }
+      }
+    }
+
+    outfitResult[cat] = selected;
+  }
+
+  return res(200, { outfit: outfitResult, baseProductIds: productIds });
+}
