@@ -160,7 +160,10 @@ export class VestiaAPI {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`API Error: ${response.status} ${response.statusText}`, errorText);
+      // Only log unexpected errors — not 404s which are handled by callers
+      if (response.status !== 404) {
+        console.error(`API Error: ${response.status} ${response.statusText}`, errorText);
+      }
       throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
