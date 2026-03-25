@@ -1,10 +1,12 @@
-# Vestia - The Retail Experience Platform (RXM)
+# Vestia — The Retail Experience Platform (RXM)
 
-A smart fitting room system that bridges physical retail with digital experiences. Customers scan items in fitting rooms, request different sizes/colors from staff, and receive personalized recommendations - all through kiosk interfaces.
+**McMaster University — COMPSCI 4ZP6A/B Capstone, Team 27**
 
-## 🚀 Quick Start
+Vestia is a smart fitting room platform that connects customers, staff, and store analytics through kiosk interfaces. Customers scan items in fitting rooms, receive AI-powered outfit recommendations, and request different sizes or colours from staff — all in real time.
 
-### Frontend Development
+---
+
+## Quick Start
 
 ```bash
 cd frontend
@@ -12,88 +14,94 @@ npm install
 npm run dev
 ```
 
-The application will be available at:
-- **Main Kiosk Interface**: http://localhost:3000
-- **Kiosk Session Page**: http://localhost:3000/kiosk/session
-- **Staff Dashboard**: http://localhost:3000/admin
-- **Analytics Dashboard**: http://localhost:3000/analytics
+| URL | Interface |
+|-----|-----------|
+| `http://localhost:3000` | Customer kiosk welcome screen |
+| `http://localhost:3000/kiosk/session` | Active fitting room session |
+| `http://localhost:3000/admin` | Staff request dashboard |
+| `http://localhost:3000/analytics` | Store analytics |
+| `http://localhost:3000/analytics/store` | Store-level analytics |
 
-## 📁 Project Structure
+---
+
+## Repository Structure
 
 ```
 Vestia_The-Retail-Experience-Platform_RXM/
-├── frontend/          # Next.js frontend application
-├── backend/           # Node.js backend (legacy)
-├── AWS/               # AWS Lambda functions and infrastructure
-│   ├── Lambda/        # Lambda function code
-│   ├── IAM/           # IAM role configurations
-│   └── S3ToDynamoDB/  # Data ingestion scripts
-└── Documents/         # Project documentation
+├── frontend/                  # Next.js 16 + TypeScript customer/staff UI
+│   └── src/
+│       ├── app/               # Page routes (kiosk, admin, analytics)
+│       ├── components/        # Reusable UI components
+│       ├── lib/api.ts         # Typed AWS API client (VestiaAPI class)
+│       └── utils/             # Helpers (sessionId generation)
+│
+├── backend/                   # Serverless backend
+│   ├── lambdas/               # 12 active AWS Lambda functions (Node.js 22, ESM)
+│   ├── scripts/               # One-time data pipeline scripts
+│   └── context/               # OpenAPI spec, DynamoDB schema reference
+│
+└── Documents/                 # SRS, project plan, research PDFs
 ```
 
-## 🏗️ Architecture
+---
+
+## Architecture Overview
 
 ### Frontend
-- **Framework**: Next.js 16 with TypeScript
-- **Styling**: Tailwind CSS
-- **State Management**: React Hooks
+- **Framework**: Next.js 16, React 19, TypeScript 5
+- **Styling**: Tailwind CSS 4
+- **API Client**: `VestiaAPI` class in `src/lib/api.ts` — typed wrappers for all endpoints
 
-### Backend (AWS)
-- **API Gateway**: REST API endpoints
-- **Lambda Functions**: Serverless functions (Node.js 24.x)
-- **DynamoDB**: Event-sourced session data + Product catalog
-- **S3**: Product images storage
+### Backend (AWS — `ca-central-1`)
+- **API Gateway**: HTTP API v2 (`vestia-api`, id: `993toyh3x5`)
+- **Lambda**: 12 active functions, Node.js 22.x ESM modules
+- **DynamoDB**: 4 tables — `VestiaSessions`, `ProductCatalog`, `CompatibilityStats`, `CustomerProfiles`
+- **S3**: `vestia-product-images` (44k product images), `vestia-product-data-ca` (raw Myntra JSONs)
 
-See [AWS_ARCHITECTURE.md](./AWS_ARCHITECTURE.md) for complete infrastructure details.
+Full infrastructure details: [AWS_ARCHITECTURE.md](./AWS_ARCHITECTURE.md)
 
-## 🎯 Key Features
+---
 
-- ✅ Item scanning with barcode support
-- ✅ Real-time request fulfillment (QUEUED → CLAIMED → DELIVERED)
-- ✅ AI-powered product recommendations
-- ✅ Multi-kiosk support with kioskId tracking
-- ✅ Staff dashboard for request management
-- ✅ Analytics dashboard for store insights
-- ✅ End session feedback collection
-- ✅ Performance optimizations (debouncing, request deduplication)
+## Key Features
 
-## 📝 Available Pages
+- **Item Scanning** — customer scans SKU at kiosk, session event stored in DynamoDB
+- **AI Recommendations** — 8-signal weighted algorithm (article type, colour, pattern, fabric, co-scan affinity, price, customer preferences, live feedback)
+- **Request Fulfillment** — customer requests size/colour change → staff notified → QUEUED → CLAIMED → DELIVERED
+- **Customer Profiles** — loyalty email links purchase history; `derivedStyle` (topColors, dominantStyle, avgPrice) personalises recommendations
+- **In-Session Feedback** — thumbs up/down and colour preference signals adjust recommendations live
+- **Session Preferences** — size, colour, style preferences persist within a session
+- **Staff Dashboard** — real-time request queue with claim/deliver workflow
+- **Store Analytics** — sessions, scans, requests, fulfillment rate, top items/sizes/colours over 7/30/90-day windows
 
-### Customer-Facing
-- `/` - Welcome screen / Main kiosk interface
-- `/kiosk/session` - Active fitting room session
+---
 
-### Staff-Facing
-- `/admin` - Staff dashboard for managing customer requests
-- `/analytics` - Analytics dashboard for store metrics
+## Tech Stack
 
-## 🔧 Development
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Next.js 16, React 19, TypeScript 5, Tailwind CSS 4 |
+| Backend | AWS Lambda (Node.js 22.x ESM), API Gateway HTTP API v2 |
+| Database | DynamoDB (single-table event-sourced + product catalog) |
+| Storage | S3 (product images + raw product JSONs) |
+| Region | `ca-central-1` |
 
-### Frontend
+---
+
+## Development
+
 ```bash
-cd frontend
-npm run dev      # Start development server
-npm run build    # Build for production
-npm run start    # Start production server
+# Frontend dev server
+cd frontend && npm run dev
+
+# TypeScript check
+cd frontend && npx tsc --noEmit
+
+# Deploy a Lambda (example)
+cd backend/lambdas/vestia-recommend
+zip -q function.zip index.mjs
+aws lambda update-function-code --function-name vestia-recommend --zip-file fileb://function.zip --region ca-central-1
 ```
 
-### Environment Variables
-The frontend connects to AWS API Gateway:
-- **API Base URL**: `https://993toyh3x5.execute-api.ca-central-1.amazonaws.com`
-- **Image Base URL**: `https://vestia-product-images.s3.ca-central-1.amazonaws.com/`
+---
 
-## 📚 Documentation
-
-- [AWS Architecture](./AWS_ARCHITECTURE.md) - Complete AWS infrastructure overview
-- [Frontend Improvements](./frontend/FRONTEND_IMPROVEMENTS.md) - Frontend enhancements
-- [Performance Fixes](./frontend/PERFORMANCE_FIXES.md) - Performance optimization details
-
-## 🛠️ Technology Stack
-
-- **Frontend**: Next.js, React, TypeScript, Tailwind CSS
-- **Backend**: AWS Lambda, API Gateway, DynamoDB, S3
-- **Region**: ca-central-1 (Canada Central)
-
-## 📄 License
-
-This project is part of a capstone project for COMPSCI 4ZP6A/B.
+*COMPSCI 4ZP6A/B — McMaster University — Team 27*
