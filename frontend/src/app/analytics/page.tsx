@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Navbar from "@/components/Navbar";
+import StoreHeatmap from "@/components/StoreHeatmap";
+import FulfillmentTimelines from "@/components/FulfillmentTimelines";
 import { VestiaAPI, AnalyticsData } from "@/lib/api";
 
 const DAY_OPTIONS = [7, 30, 90] as const;
@@ -152,8 +154,8 @@ export default function AnalyticsPage() {
           </div>
         ) : data ? (
           <>
-            {/* KPI Grid — 6 cards, fulfillment gets accent */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-10">
+            {/* KPI Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-12">
               <KPICard label="Sessions"         value={data.totalSessions} />
               <KPICard label="Items Scanned"    value={data.totalScans} />
               <KPICard label="Requests"         value={data.totalRequests} />
@@ -162,46 +164,49 @@ export default function AnalyticsPage() {
               <KPICard label="Fulfillment"      value={`${data.requestFulfillmentRate}%`} sub={`avg ${fmtDuration(data.avgFulfillmentSeconds)}`} accent />
             </div>
 
-            {/* Request Status — donut-style breakdown */}
-            {statusEntries.length > 0 && (
-              <div className="bg-[#FDF7EF] rounded-3xl border border-[#E5D5C8] p-7 mb-8 shadow-sm">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#8C6A4B] mb-5">Request Status Breakdown</p>
-                <div className="flex flex-wrap gap-3">
-                  {statusEntries.map(([status, count]) => {
-                    const cfg = STATUS_COLORS[status] ?? { badge: "bg-[#F5E9DA] text-[#4A3A2E] border-[#E5D5C8]", dot: "bg-[#8C6A4B]" };
-                    const pct = totalRequests > 0 ? Math.round((count / totalRequests) * 100) : 0;
-                    return (
-                      <div key={status} className={`flex items-center gap-3 px-5 py-3 rounded-2xl border font-medium ${cfg.badge}`}>
-                        <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${cfg.dot}`} />
-                        <span className="text-2xl font-black">{count}</span>
-                        <div className="leading-tight">
-                          <p className="text-xs font-bold uppercase tracking-wide">{status}</p>
-                          <p className="text-xs opacity-70">{pct}% of total</p>
+            {/* Request Status & Top Items Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
+              {/* Request Status - Wider on left */}
+              {statusEntries.length > 0 && (
+                <div className="lg:col-span-2 bg-[#FDF7EF] rounded-3xl border border-[#E5D5C8] p-7 shadow-sm">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#8C6A4B] mb-5">Request Status Breakdown</p>
+                  <div className="flex flex-wrap gap-3">
+                    {statusEntries.map(([status, count]) => {
+                      const cfg = STATUS_COLORS[status] ?? { badge: "bg-[#F5E9DA] text-[#4A3A2E] border-[#E5D5C8]", dot: "bg-[#8C6A4B]" };
+                      const pct = totalRequests > 0 ? Math.round((count / totalRequests) * 100) : 0;
+                      return (
+                        <div key={status} className={`flex items-center gap-3 px-5 py-3 rounded-2xl border font-medium ${cfg.badge}`}>
+                          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${cfg.dot}`} />
+                          <span className="text-2xl font-black">{count}</span>
+                          <div className="leading-tight">
+                            <p className="text-xs font-bold uppercase tracking-wide">{status}</p>
+                            <p className="text-xs opacity-70">{pct}% of total</p>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Three charts */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
-              {/* Top Scanned Items */}
+              {/* Top Scanned Items - Compact */}
               <div className="bg-[#FDF7EF] rounded-3xl border border-[#E5D5C8] p-7 shadow-sm">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#8C6A4B] mb-1">Top Scanned Items</p>
-                <p className="text-2xl font-black text-[#1C1007] mb-5">SKUs</p>
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#8C6A4B] mb-1">Top Scanned</p>
+                <p className="text-xl font-black text-[#1C1007] mb-5">Items</p>
                 {data.topItems.length === 0 ? (
-                  <p className="text-sm text-[#8C6A4B]">No scan data yet</p>
+                  <p className="text-sm text-[#8C6A4B]">No data yet</p>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {data.topItems.map(({ sku, count }, i) => (
                       <RankBar key={sku} label={`SKU ${sku}`} count={count} max={topItemMax} rank={i + 1} />
                     ))}
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* Three Items Charts */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
 
               {/* Most Requested Sizes */}
               <div className="bg-[#FDF7EF] rounded-3xl border border-[#E5D5C8] p-7 shadow-sm">
@@ -232,6 +237,39 @@ export default function AnalyticsPage() {
                   </div>
                 )}
               </div>
+
+              {/* Quick Insights */}
+              <div className="bg-gradient-to-br from-[#4A3A2E] to-[#3B2A21] rounded-3xl border border-[#3B2A21] p-7 text-white shadow-sm">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/50 mb-4">Key Insights</p>
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-xs text-white/70 mb-1">Most Active Zone</p>
+                    <p className="text-lg font-black truncate">{data.totalScans > 0 ? "All zones tracked" : "—"}</p>
+                  </div>
+                  <div className="h-px bg-white/10" />
+                  <div>
+                    <p className="text-xs text-white/70 mb-1">Fulfillment Rate</p>
+                    <p className="text-3xl font-black">{data.requestFulfillmentRate}%</p>
+                  </div>
+                  <div className="h-px bg-white/10" />
+                  <div>
+                    <p className="text-xs text-white/70 mb-1">Active Sessions</p>
+                    <p className="text-3xl font-black">{data.totalSessions}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Fulfillment Timelines — Request to Pickup to Delivery */}
+            <div className="mt-12">
+              <FulfillmentTimelines data={data} />
+            </div>
+
+            {/* Store Heatmap — Moved to Bottom */}
+            <div className="mt-12">
+              <StoreHeatmap
+                scans={data.allScans || []}
+              />
             </div>
           </>
         ) : null}

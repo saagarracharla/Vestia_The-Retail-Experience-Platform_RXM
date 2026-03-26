@@ -61,14 +61,31 @@ export const handler = async (event) => {
     }
 
     // Update both session and store partitions
+    // Build dynamic update expression to track status transition timestamps
+    let updateExpression = "SET #status = :status, updatedAt = :timestamp";
+    const exprValues = {
+      ":status": newStatus,
+      ":timestamp": timestamp
+    };
+    const exprNames = { "#status": "status" };
+
+    // Track when request is claimed (picked up by employee)
+    if (newStatus === "CLAIMED" && !request.claimedAt) {
+      updateExpression += ", claimedAt = :claimedAt";
+      exprValues[":claimedAt"] = timestamp;
+    }
+
+    // Track when request is delivered
+    if (newStatus === "DELIVERED" && !request.deliveredAt) {
+      updateExpression += ", deliveredAt = :deliveredAt";
+      exprValues[":deliveredAt"] = timestamp;
+    }
+
     const updateParams = {
       TableName: "VestiaSessions",
-      UpdateExpression: "SET #status = :status, updatedAt = :timestamp",
-      ExpressionAttributeNames: { "#status": "status" },
-      ExpressionAttributeValues: {
-        ":status": newStatus,
-        ":timestamp": timestamp
-      }
+      UpdateExpression: updateExpression,
+      ExpressionAttributeNames: exprNames,
+      ExpressionAttributeValues: exprValues
     };
 
     // Update in session partition
