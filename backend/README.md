@@ -53,7 +53,7 @@ Queries all events for a session (`SESSION#{sessionId}`) and returns them normal
 Writes a `FEEDBACK` event with `itemFeedback[]` (sku, liked, preferredColor) to the session.
 
 **`vestia-session-preferences`** — `POST /session/preferences`
-Writes a `PREF` event with `preferredSizes`, `preferredColors`, `preferredStyles` to the session.
+Writes a `PREF` event with `preferredColors`, `preferredStyles`, `preferredPatterns`, `preferredFabrics` to the session. These are passed directly into the scoring pipeline on subsequent recommendation calls.
 
 ### Requests
 
@@ -77,13 +77,37 @@ Queries the `STORE#STORE-001` partition to return all requests for the staff das
 Returns a single product from `ProductCatalog` including all S3-enriched attributes (pattern, fit, fabric, etc.).
 
 **`vestia-recommend`** — `POST /recommend`
-Full recommendation pipeline — see [AWS_ARCHITECTURE.md](../AWS_ARCHITECTURE.md) for the complete algorithm breakdown.
+Multi-signal scoring pipeline — not an AI model. Candidates are ranked by a deterministic weighted composite score across 8 independent signals. Weights shift dynamically based on available context.
 
 **Single-item mode**: `{ productId, targetCategory, gender?, sessionId?, customerId?, sessionPreferences? }`
-Returns top-5 scored products with diversity re-ranking for one target category.
+Returns top-5 scored candidates for one target category with diversity re-ranking applied after scoring.
 
 **Mix & Match (outfit) mode**: `{ productIds: string[], sessionId?, customerId?, sessionPreferences? }`
-Scores candidates against ALL selected base items simultaneously (averaged), fills missing outfit categories (top/bottom/shoes/accessory), returns `{ outfit: Record<category, RecommendationItem[]>, baseProductIds }`.
+Scores candidates against all selected base items simultaneously (score averaged across base items), fills all missing outfit categories (top/bottom/shoes/accessory), returns `{ outfit: Record<category, RecommendationItem[]>, baseProductIds }`.
+
+**Scoring signals (8 total):**
+
+| Signal | Source table | Default weight | With context |
+|---|---|---|---|
+| Article type compatibility | `CompatibilityStats` | 25% | 18% |
+| Colour compatibility | `CompatibilityStats` | 20% | 13% |
+| Pattern compatibility | `CompatibilityStats` | 15% | 10% |
+| Historical co-occurrence | `VestiaSessions` (30-day scan pairs) | 15% | 12% |
+| Fabric compatibility | `CompatibilityStats` | 10% | 7% |
+| Price proximity | `ProductCatalog` | 8% | 5% |
+| Preference signal (composite) | Customer profile + session prefs | 5% | 33% |
+| Session feedback signal | `VestiaSessions` (FEEDBACK events) | 2% | 2% |
+
+**Preference signal sub-components** (computed independently, averaged into prefScore):
+- Session colours — explicit in-session pick, 1.0 match / 0.05 miss
+- Profile derived colours — from purchase history, 0.75 match / 0.05 miss (separate signal, does not cancel session colours)
+- Style / usage — session style + dominant style from `derivedStyle`
+- Pattern preference — maps to the pattern compatibility dimension
+- Fabric preference — maps to the fabric compatibility dimension
+- Article type affinity — 0.85 if candidate article type appears in purchase history
+- Price range alignment — 1.0 if candidate price is within ±50% of customer's average spend
+
+When any preference or profile context is present, `hasPrefs = true` and the preference signal weight rises from 5% to 33% with other weights reduced proportionally.
 
 **`vestia-outfit`** — `POST /outfit` + `GET /outfit/{shareCode}`
 - POST: saves a complete outfit to `VestiaSessions` under `PK: OUTFIT#{shareCode}`, `SK: META`. Generates a 6-char unambiguous share code (no 0/O/1/I). Returns `{ outfitId, shareCode }`.

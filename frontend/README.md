@@ -93,13 +93,39 @@ VestiaAPI.getOutfit(shareCode)
 
 The kiosk session page (`/kiosk/session`) is the core of the customer experience:
 
-- **Scan items** — SKU input writes SCAN event to DynamoDB, triggers recommendation fetch
-- **Recommendations panel** — shows top-5 outfit suggestions scored by the recommendation algorithm
-- **Preferences modal** — auto-triggers after first scan; collects sizes, colours, styles; written as PREF event
-- **Customer login modal** — link loyalty email to load purchase history and `derivedStyle`; re-fetches recommendations with customer context
-- **Request modal** — customer requests a size/colour change; creates REQUEST event (QUEUED → CLAIMED → DELIVERED)
-- **In-session feedback** — thumbs up/down + colour preference on recommendation cards; adjusts live scoring
-- **Mix & Match mode** — select multiple scanned items, calls `/recommend` with `productIds[]`, receives outfit completions for all missing categories (top/bottom/shoes/accessory) scored against all selected items simultaneously
-- **Save & Share outfit** — after building an outfit, saves it to DynamoDB via POST `/outfit`, generates a 6-char share code; customer photographs the screen; `/outfit/{shareCode}` renders the full outfit on any device without authentication
+- **Scan items** — SKU input writes a SCAN event to DynamoDB and immediately triggers the scoring pipeline
+- **Recommendation panel** — shows top-5 ranked outfit suggestions; see [Scoring Pipeline](#scoring-pipeline) below
+- **In-session preferences modal** — customer picks preferred colours, styles, patterns, and fabrics; updates live scoring with a 33% signal weight when set
+- **Customer login modal** — link a loyalty email to load full purchase history and derived style profile; shifts recommendation rankings toward historically preferred items
+- **Request modal** — customer requests a different size or colour; creates a REQUEST event (QUEUED → CLAIMED → DELIVERED)
+- **Mix & Match mode** — select multiple scanned items, calls `/recommend` with `productIds[]`, fills all missing outfit categories (top/bottom/shoes/accessory) simultaneously
+- **Save & Share outfit** — saves a built outfit to DynamoDB via POST `/outfit`, returns a 6-char share code; `/outfit/{shareCode}` renders the full look on any device without authentication
 - **Session timer** — live elapsed time display
 - **End session modal** — collects overall and per-item feedback before closing
+
+## Scoring Pipeline
+
+Recommendations are not AI-generated — they are produced by a deterministic multi-signal scoring function in `vestia-recommend`. Each candidate item receives a weighted composite score across up to 8 independent signals:
+
+| Signal | Default weight | With prefs/profile |
+|---|---|---|
+| Article type compatibility | 25% | 18% |
+| Colour compatibility | 20% | 13% |
+| Pattern compatibility | 15% | 10% |
+| Historical co-occurrence | 15% | 12% |
+| Fabric compatibility | 10% | 7% |
+| Price proximity | 8% | 5% |
+| Preference signal (see below) | 5% | 33% |
+| Session feedback signal | 2% | 2% |
+
+The **preference signal** is itself a composite of up to 6 sub-signals, each computed independently so they compete rather than cancel:
+
+1. **Session colours** (explicit, high-confidence) — customer-selected colours score 1.0; misses score 0.05
+2. **Profile derived colours** (learned, medium-confidence) — colours from purchase history score 0.75; misses score 0.05
+3. **Style / usage** — session style preference + dominant style from purchase history
+4. **Pattern preference** — solid, striped, checked, printed, etc.; maps directly to the pattern compatibility dimension
+5. **Fabric preference** — cotton, denim, synthetic, etc.; maps directly to the fabric compatibility dimension
+6. **Article type affinity** — article types the customer has bought before get a 0.85 boost; others 0.35
+7. **Price range alignment** — candidates within ±50% of the customer's average historical spend score 1.0
+
+When any preference or profile context is present, the preference signal weight rises from 5% to 33% and the base catalog signals are reduced proportionally. This means a guest and a returning customer scanning the same item receive meaningfully different rankings, and the list updates immediately when preferences are changed mid-session.
