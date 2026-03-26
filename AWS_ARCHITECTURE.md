@@ -13,7 +13,7 @@
 | POST | `/session/scan` | `vestia-session-scan` | Record item scan |
 | GET | `/session/{sessionId}` | `vestia-session-get` | Fetch session events |
 | POST | `/session/feedback` | `vestia-session-feedback` | Submit in-session feedback |
-| POST | `/session/preferences` | `vestia-session-preferences` | Save size/colour/style preferences |
+| POST | `/session/preferences` | `vestia-session-preferences` | Save colour/style/pattern/fabric preferences |
 | POST | `/request` | `vestia-request-post` | Create staff request (double-write) |
 | PATCH | `/request/{requestId}` | `vestia-request-update` | Update request status |
 | PATCH | `/request/{requestId}/claim` | `vestia-request-claim` | Staff claims a request |
@@ -103,9 +103,10 @@ Event-sourced single table storing all session activity.
   "PK": "SESSION#abc123",
   "SK": "PREF#2026-03-24T12:01:00Z",
   "sessionId": "abc123",
-  "preferredSizes": { "top": "M", "bottom": "32" },
   "preferredColors": ["black", "navy"],
-  "preferredStyles": ["casual"]
+  "preferredStyles": ["casual"],
+  "preferredPatterns": ["solid"],
+  "preferredFabrics": ["cotton", "denim"]
 }
 ```
 
@@ -173,9 +174,10 @@ Loyalty customer data with purchase history and derived style insights.
 {
   "customerId": "demo@vestia.com",
   "gender": "men",
-  "preferredSizes": { "top": "M", "bottom": "32", "shoes": "10" },
   "preferredColors": ["black", "navy"],
   "preferredStyles": ["casual"],
+  "preferredPatterns": ["solid"],
+  "preferredFabrics": ["cotton", "denim"],
   "purchaseHistory": [
     {
       "productId": "15479",
@@ -219,36 +221,53 @@ Loyalty customer data with purchase history and derived style insights.
 | `vestia-recommend` | POST /recommend | ProductCatalog, CompatibilityStats, VestiaSessions, CustomerProfiles |
 | `vestia-analytics-get` | GET /analytics | VestiaSessions (read SESSION# partition) |
 | `vestia-customer-profile` | GET+PUT /customer/{id} | CustomerProfiles |
-
-> `vestia-session-handler` and `vestia-storeMetrics` are unused placeholders.
+| `vestia-outfit` | POST+GET /outfit | VestiaSessions (write + read OUTFIT# partition) |
 
 ---
 
 ## Recommendation Algorithm
 
-`vestia-recommend` implements a full weighted scoring pipeline:
+`vestia-recommend` implements a deterministic multi-signal weighted scoring pipeline — not an AI model. Two modes:
 
-```
-POST /recommend { productId, targetCategory, gender?, sessionId?, customerId?, sessionPreferences? }
-```
+**Single-item mode**: `{ productId, targetCategory, gender?, sessionId?, customerId?, sessionPreferences? }`
+Returns top-5 scored candidates for one target category with diversity re-ranking applied.
+
+**Mix & Match mode**: `{ productIds: string[], sessionId?, customerId?, sessionPreferences? }`
+Scores candidates against all selected base items simultaneously (score averaged across base items), fills all missing outfit categories (top/bottom/shoes/accessory), returns `{ outfit: Record<category, RecommendationItem[]>, baseProductIds }`.
 
 ### Scoring Weights
 
-| Signal | Weight | Source |
-|--------|--------|--------|
-| Article type compatibility | 25% | CompatibilityStats `ARTICLE#` |
-| Colour compatibility | 20% | CompatibilityStats `COLOR#` |
-| Pattern compatibility | 15% | CompatibilityStats `PATTERN#` (S3-enriched) |
-| Historical co-scan affinity | 15% | VestiaSessions 30-day window |
-| Fabric compatibility | 10% | CompatibilityStats `FABRIC#` (S3-enriched) |
-| Price proximity | 8% | ProductCatalog price field |
-| Customer preferences | 5% | CustomerProfiles + session PREF events |
-| In-session feedback | 2% | VestiaSessions FEEDBACK events |
+Weights shift dynamically based on available context. When any preference or profile data is present (`hasPrefs = true`), the preference signal rises from 5% to 33% and all other weights reduce proportionally.
+
+| Signal | Default weight | With prefs/profile | Source |
+|--------|---------------|-------------------|--------|
+| Article type compatibility | 25% | 18% | CompatibilityStats `ARTICLE#` |
+| Colour compatibility | 20% | 13% | CompatibilityStats `COLOR#` |
+| Pattern compatibility | 15% | 10% | CompatibilityStats `PATTERN#` |
+| Historical co-scan affinity | 15% | 12% | VestiaSessions 30-day window |
+| Fabric compatibility | 10% | 7% | CompatibilityStats `FABRIC#` |
+| Price proximity | 8% | 5% | ProductCatalog price field |
+| Preference signal (composite) | 5% | 33% | CustomerProfiles + session PREF events |
+| In-session feedback | 2% | 2% | VestiaSessions FEEDBACK events |
+
+### Preference Signal Sub-components
+
+The preference signal is itself a composite of up to 7 independent sub-signals (averaged together):
+
+| Sub-signal | Match score | Miss score | Notes |
+|-----------|-------------|------------|-------|
+| Session colours (explicit) | 1.0 | 0.05 | Highest confidence |
+| Profile derived colours (learned) | 0.75 | 0.05 | Kept separate to avoid cancellation |
+| Style / usage | 1.0 | 0.05 | Session style + `derivedStyle.dominantStyle` |
+| Pattern preference | 1.0 | 0.05 | Maps to pattern compatibility dimension |
+| Fabric preference | 1.0 | 0.05 | Maps to fabric compatibility dimension |
+| Article type affinity | 0.85 | 0.35 | From `derivedStyle.topArticles` |
+| Price range alignment | 1.0 | 0.3 | ±50% of `derivedStyle.avgPrice` |
 
 ### Pipeline Steps
 
-1. Fetch base product from `ProductCatalog`
-2. Fetch 6 CompatibilityStats in parallel (COLOR, ARTICLE, USAGE, PATTERN, FABRIC, FIT)
+1. Fetch base product(s) from `ProductCatalog`
+2. Fetch compatibility stats in parallel (COLOR, ARTICLE, USAGE, PATTERN, FABRIC, FIT)
 3. Read session SCAN events → exclude already-scanned SKUs
 4. Read session FEEDBACK events → build live feedback signals
 5. Read session PREF events → merge with inline `sessionPreferences`
@@ -256,7 +275,7 @@ POST /recommend { productId, targetCategory, gender?, sessionId?, customerId?, s
 7. Load `CustomerProfiles` if `customerId` provided → merge `derivedStyle`
 8. Scan `ProductCatalog` filtered by gender
 9. Filter by target category (top / bottom / shoes / accessory)
-10. Score all candidates using weighted formula
+10. Score all candidates using dynamic weighted formula
 11. Diversity re-rank: max 1 per article type, max 2 per colour in top-5
 12. Return top-5 per category
 

@@ -2,7 +2,7 @@
 
 **McMaster University — COMPSCI 4ZP6A/B Capstone, Team 27**
 
-Vestia is a smart fitting room platform that connects customers, staff, and store analytics through kiosk interfaces. Customers scan items in fitting rooms, receive AI-powered outfit recommendations, and request different sizes or colours from staff — all in real time.
+Vestia is a smart fitting room platform that connects customers, staff, and store analytics through kiosk interfaces. Customers scan items in fitting rooms, receive personalised outfit recommendations scored by a multi-signal algorithm, and request different sizes or colours from staff — all in real time.
 
 ---
 
@@ -36,7 +36,7 @@ Vestia_The-Retail-Experience-Platform_RXM/
 │       └── utils/             # Helpers (sessionId generation)
 │
 ├── backend/                   # Serverless backend
-│   ├── lambdas/               # 12 active AWS Lambda functions (Node.js 22, ESM)
+│   ├── lambdas/               # 13 active AWS Lambda functions (Node.js 22, ESM)
 │   ├── scripts/               # One-time data pipeline scripts
 │   └── context/               # OpenAPI spec, DynamoDB schema reference
 │
@@ -65,7 +65,7 @@ Full infrastructure details: [AWS_ARCHITECTURE.md](./AWS_ARCHITECTURE.md)
 ## Key Features
 
 - **Item Scanning** — customer scans SKU at kiosk, session event stored in DynamoDB
-- **AI Recommendations** — 8-signal weighted algorithm (article type, colour, pattern, fabric, co-scan affinity, price, customer preferences, live feedback)
+- **Outfit Recommendations** — deterministic 8-signal weighted scoring pipeline (article type compatibility, colour compatibility, pattern compatibility, historical co-occurrence, fabric compatibility, price proximity, customer preference signal, live feedback); preference weight shifts from 5% to 33% when customer profile or in-session preferences are present
 - **Request Fulfillment** — customer requests size/colour change → staff notified → QUEUED → CLAIMED → DELIVERED
 - **Customer Profiles** — loyalty email links purchase history; `derivedStyle` (topColors, dominantStyle, avgPrice) personalises recommendations
 - **In-Session Feedback** — thumbs up/down and colour preference signals adjust recommendations live

@@ -48,11 +48,14 @@ Sizes:
 
 System Usage:
 
-- DynamoDB ProductCatalog stores a CLEANED version of this data
-- Only key fields are extracted and normalized:
-    productId, name, category, articleType, color, price, gender, season
+- DynamoDB ProductCatalog stores a CLEANED + ENRICHED version of this data
+- Base fields extracted and normalized:
+    productId, name, category, articleType, color, price, gender, season, usage
+
+- Additional fields written by backend/scripts/enrich-catalog-from-s3.py (one-time enrichment):
+    pattern, fit, fabric, occasion, baseColour, availableSizes, sleeveLength, neckType, idealFor
 
 - S3 JSON is NOT queried at runtime for performance reasons
-- It acts as:
-    → raw dataset
-    → enrichment source (optional)
+- 60 concurrent workers enriched all 44,426 products in ~4 minutes
+- The enriched DynamoDB attributes are read directly by vestia-recommend at scoring time
+    (pattern and fabric fields feed the pattern/fabric compatibility signals)
