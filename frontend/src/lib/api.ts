@@ -86,11 +86,23 @@ export interface AnalyticsData {
   avgItemsPerSession: number;
   avgSessionDurationSeconds: number;
   avgFulfillmentSeconds: number;
+  avgRequestToPickupSeconds: number;
+  avgPickupToDeliverySeconds: number;
+  requestToPickupCount: number;
+  pickupToDeliveryCount: number;
   requestFulfillmentRate: number;
   requestStatusBreakdown: Record<string, number>;
   topItems: { sku: string; count: number }[];
   topSizes: { size: string; count: number }[];
   topColors: { color: string; count: number }[];
+  // All individual scans with zone data (for heatmap)
+  allScans?: Array<{
+    sku: string;
+    zoneId: string;
+    sessionId?: string;
+    createdAt?: string;
+    productName?: string;
+  }>;
 }
 
 // Types for normalized event schema
