@@ -22,6 +22,8 @@ export interface CustomerProfile {
   preferredSizes?: Record<string, string>; // { top: "M", bottom: "32", shoes: "10" }
   preferredColors?: string[];
   preferredStyles?: string[];
+  preferredPatterns?: string[];
+  preferredFabrics?: string[];
   purchaseHistory?: PurchaseRecord[];
   visitCount?: number;
   lastVisitAt?: string;
@@ -40,6 +42,8 @@ export interface SessionPreferences {
   preferredSizes?: Record<string, string>;
   preferredColors?: string[];
   preferredStyles?: string[];
+  preferredPatterns?: string[];
+  preferredFabrics?: string[];
 }
 
 // Types based on AWS Lambda responses
