@@ -372,11 +372,13 @@ async function getCandidates(gender, excludeSkus) {
 function mergePreferences(profile, sessionPrefs) {
   // Session prefs take priority over customer profile
   return {
-    preferredSizes:  { ...(profile?.preferredSizes  || {}), ...(sessionPrefs?.preferredSizes  || {}) },
-    preferredColors: sessionPrefs?.preferredColors || profile?.preferredColors || [],
-    preferredStyles: sessionPrefs?.preferredStyles || profile?.preferredStyles || [],
-    purchaseHistory: profile?.purchaseHistory || [],
-    derivedStyle:    profile?.derivedStyle    || null,  // computed from purchase history
+    preferredSizes:    { ...(profile?.preferredSizes  || {}), ...(sessionPrefs?.preferredSizes  || {}) },
+    preferredColors:   sessionPrefs?.preferredColors   || profile?.preferredColors   || [],
+    preferredStyles:   sessionPrefs?.preferredStyles   || profile?.preferredStyles   || [],
+    preferredPatterns: sessionPrefs?.preferredPatterns || profile?.preferredPatterns || [],
+    preferredFabrics:  sessionPrefs?.preferredFabrics  || profile?.preferredFabrics  || [],
+    purchaseHistory:   profile?.purchaseHistory || [],
+    derivedStyle:      profile?.derivedStyle    || null,
   };
 }
 
@@ -442,32 +444,58 @@ function computeScore(candidate, base, { colorCompat, articleCompat, usageCompat
   const maxPrice = Math.max(candidate.price || 1, base.price || 1);
   const priceScore = Math.max(0, 1 - priceDiff / (maxPrice * 2));
 
-  // ── Customer / session preference boost (uses derivedStyle from purchase history) ──
+  // ── Customer / session preference boost ───────────────────────────────────
+  // Session prefs (explicit, high-confidence) and profile history (learned,
+  // medium-confidence) are kept as SEPARATE signals so they don't cancel
+  // each other out when both are present.
   let prefScore = 0.5;
+  let hasPrefs = false;
   if (prefs) {
     let boosts = 0, boostCount = 0;
 
-    // Explicit colour preferences (from modal or profile)
-    const allPreferredColors = [
-      ...(prefs.preferredColors || []),
-      ...(prefs.derivedStyle?.topColors || []),   // ← derived from purchase history
-    ].map(c => c.toLowerCase());
-
-    if (allPreferredColors.length > 0) {
-      // Strong match: exact colour. Partial: same colour family
-      boosts += allPreferredColors.includes(candColor) ? 1.0 : 0.2;
+    // Session colour preference — explicit pick, highest confidence
+    const sessionColors = (prefs.preferredColors || []).map(c => c.toLowerCase());
+    if (sessionColors.length > 0) {
+      boosts += sessionColors.includes(candColor) ? 1.0 : 0.05;
       boostCount++;
+      hasPrefs = true;
     }
 
-    // Style / usage match
+    // Profile derived colour preference — learned from purchase history
+    // Treated as a separate, lower-confidence signal so it can compete
+    // with session prefs rather than being swallowed by them
+    const profileColors = (prefs.derivedStyle?.topColors || []).map(c => c.toLowerCase());
+    if (profileColors.length > 0) {
+      boosts += profileColors.includes(candColor) ? 0.75 : 0.05;
+      boostCount++;
+      hasPrefs = true;
+    }
+
+    // Style / usage preferences (session + profile)
     const allStyles = [
       ...(prefs.preferredStyles || []),
       ...(prefs.derivedStyle?.dominantStyle ? [prefs.derivedStyle.dominantStyle] : []),
     ].map(s => s.toLowerCase());
-
     if (allStyles.length > 0) {
-      boosts += allStyles.includes(candUsage) ? 1.0 : 0.3;
+      boosts += allStyles.includes(candUsage) ? 1.0 : 0.1;
       boostCount++;
+      hasPrefs = true;
+    }
+
+    // Pattern preferences (solid, striped, checked, printed, etc.)
+    const allPreferredPatterns = (prefs.preferredPatterns || []).map(p => p.toLowerCase());
+    if (allPreferredPatterns.length > 0 && candPattern) {
+      boosts += allPreferredPatterns.includes(candPattern) ? 1.0 : 0.1;
+      boostCount++;
+      hasPrefs = true;
+    }
+
+    // Fabric preferences (cotton, denim, synthetic, etc.)
+    const allPreferredFabrics = (prefs.preferredFabrics || []).map(f => f.toLowerCase());
+    if (allPreferredFabrics.length > 0 && candFabric) {
+      boosts += allPreferredFabrics.includes(candFabric) ? 1.0 : 0.1;
+      boostCount++;
+      hasPrefs = true;
     }
 
     // Article type affinity from purchase history
@@ -478,15 +506,17 @@ function computeScore(candidate, base, { colorCompat, articleCompat, usageCompat
     if (pastArticles.length > 0) {
       boosts += pastArticles.includes(candArticle) ? 0.85 : 0.35;
       boostCount++;
+      hasPrefs = true;
     }
 
-    // Price range alignment: boost candidates within ±50% of customer's avg spend
+    // Price range alignment from purchase history
     if (prefs.derivedStyle?.avgPrice) {
       const avgSpend = prefs.derivedStyle.avgPrice;
       const candPrice = candidate.price || 0;
-      const priceDiff = Math.abs(candPrice - avgSpend) / Math.max(avgSpend, 1);
-      boosts += priceDiff < 0.5 ? 1.0 : priceDiff < 1.0 ? 0.6 : 0.2;
+      const diff = Math.abs(candPrice - avgSpend) / Math.max(avgSpend, 1);
+      boosts += diff < 0.5 ? 1.0 : diff < 1.0 ? 0.6 : 0.2;
       boostCount++;
+      hasPrefs = true;
     }
 
     if (boostCount > 0) prefScore = boosts / boostCount;
@@ -505,7 +535,23 @@ function computeScore(candidate, base, { colorCompat, articleCompat, usageCompat
     if (count > 0) feedbackScore = total / count;
   }
 
-  // ── Combine weighted scores (sums to 1.0) ─────────────────────────────────
+  // ── Dynamic weights: give preference signal much more power when context exists
+  // Without profile/prefs: algorithm is purely catalog-driven (compatibility + co-occurrence)
+  // With profile/prefs: personal signals take a significant share of the final score
+  if (hasPrefs) {
+    return (
+      articleScore  * 0.18 +
+      colorScore    * 0.13 +
+      patternScore  * 0.10 +
+      coScanScore   * 0.12 +
+      fabricScore   * 0.07 +
+      priceScore    * 0.05 +
+      prefScore     * 0.33 +
+      feedbackScore * 0.02
+    );
+  }
+
+  // ── Default weights: no personalisation context ────────────────────────────
   return (
     articleScore  * 0.25 +
     colorScore    * 0.20 +

@@ -77,11 +77,10 @@ export default function SessionKioskPage() {
   const [customerIdInput, setCustomerIdInput] = useState("");
 
   // Pref form state
-  const [prefTopSize, setPrefTopSize] = useState("");
-  const [prefBottomSize, setPrefBottomSize] = useState("");
-  const [prefShoesSize, setPrefShoesSize] = useState("");
   const [prefColors, setPrefColors] = useState<string[]>([]);
   const [prefStyles, setPrefStyles] = useState<string[]>([]);
+  const [prefPatterns, setPrefPatterns] = useState<string[]>([]);
+  const [prefFabrics, setPrefFabrics] = useState<string[]>([]);
 
   // Mix & Match state
   const [mixMatchMode, setMixMatchMode] = useState(false);
@@ -423,13 +422,10 @@ export default function SessionKioskPage() {
 
   async function handleSavePreferences() {
     const prefs: SessionPreferences = {
-      preferredSizes: {
-        ...(prefTopSize    ? { top:    prefTopSize    } : {}),
-        ...(prefBottomSize ? { bottom: prefBottomSize } : {}),
-        ...(prefShoesSize  ? { shoes:  prefShoesSize  } : {}),
-      },
-      preferredColors: prefColors,
-      preferredStyles: prefStyles,
+      preferredColors:   prefColors,
+      preferredStyles:   prefStyles,
+      preferredPatterns: prefPatterns,
+      preferredFabrics:  prefFabrics,
     };
     setSessionPreferences(prefs);
     setIsPrefsModalOpen(false);
@@ -440,11 +436,11 @@ export default function SessionKioskPage() {
 
     // If customer is logged in, persist to their profile too
     if (customerId) {
-      try { await VestiaAPI.upsertCustomerProfile(customerId, { preferredSizes: prefs.preferredSizes, preferredColors: prefs.preferredColors, preferredStyles: prefs.preferredStyles }); } catch { /* non-critical */ }
+      try { await VestiaAPI.upsertCustomerProfile(customerId, { preferredColors: prefs.preferredColors, preferredStyles: prefs.preferredStyles, preferredPatterns: prefs.preferredPatterns, preferredFabrics: prefs.preferredFabrics }); } catch { /* non-critical */ }
     }
 
-    // Re-fetch recommendations with new prefs for the currently selected item
-    if (mainItem) fetchRecommendations(mainItem.sku, activeCategory === "all" ? "bottom" : activeCategory);
+    // Pass prefs directly — state hasn't flushed yet at this point
+    if (mainItem) fetchRecommendations(mainItem.sku, activeCategory === "all" ? "bottom" : activeCategory, prefs);
   }
 
   async function handleCustomerLogin() {
@@ -456,26 +452,23 @@ export default function SessionKioskPage() {
         setCustomerId(id);
         setCustomerProfile(profile);
         // Pre-fill pref form from profile (including history-derived colours)
-        if (profile.preferredSizes) {
-          setPrefTopSize(profile.preferredSizes.top || "");
-          setPrefBottomSize(profile.preferredSizes.bottom || "");
-          setPrefShoesSize(profile.preferredSizes.shoes || "");
-        }
         const allColors = [
           ...(profile.preferredColors || []),
           ...(profile.derivedStyle?.topColors || []),
         ].filter((c, i, a) => a.indexOf(c) === i);
         if (allColors.length) setPrefColors(allColors);
         if (profile.preferredStyles?.length) setPrefStyles(profile.preferredStyles);
+        if ((profile as any).preferredPatterns?.length) setPrefPatterns((profile as any).preferredPatterns);
+        if ((profile as any).preferredFabrics?.length) setPrefFabrics((profile as any).preferredFabrics);
         await VestiaAPI.upsertCustomerProfile(id, { incrementVisit: true });
       } else {
         await VestiaAPI.upsertCustomerProfile(id, { incrementVisit: true });
         setCustomerId(id);
       }
     } catch { /* non-critical */ }
-    // Re-fetch recommendations with customer profile data
+    // Pass id directly — state hasn't flushed yet at this point
     if (mainItem) {
-      setTimeout(() => fetchRecommendations(mainItem.sku, activeCategory === "all" ? "bottom" : activeCategory), 300);
+      fetchRecommendations(mainItem.sku, activeCategory === "all" ? "bottom" : activeCategory, undefined, id);
     }
     setIsCustomerLoginOpen(false);
     setCustomerIdInput("");
@@ -487,6 +480,14 @@ export default function SessionKioskPage() {
 
   function togglePrefStyle(style: string) {
     setPrefStyles(prev => prev.includes(style) ? prev.filter(s => s !== style) : [...prev, style]);
+  }
+
+  function togglePrefPattern(pattern: string) {
+    setPrefPatterns(prev => prev.includes(pattern) ? prev.filter(p => p !== pattern) : [...prev, pattern]);
+  }
+
+  function togglePrefFabric(fabric: string) {
+    setPrefFabrics(prev => prev.includes(fabric) ? prev.filter(f => f !== fabric) : [...prev, fabric]);
   }
 
   // ── Mix & Match ────────────────────────────────────────────────────────────
@@ -591,29 +592,40 @@ export default function SessionKioskPage() {
 
 
   // Fetch recommendations from new AWS API
-  async function fetchRecommendations(itemSku: string, category: CategoryFilter = "all") {
+  // overridePrefs / overrideCustomerId allow callers to pass fresh values before
+  // React state has flushed (setState is async — reading state immediately after
+  // calling it gives the stale value from the current closure).
+  async function fetchRecommendations(
+    itemSku: string,
+    category: CategoryFilter = "all",
+    overridePrefs?: SessionPreferences | null,
+    overrideCustomerId?: string | null,
+  ) {
     if (!itemSku || loadingRecommendations || category === "all") return;
-    
+
     setLoadingRecommendations(true);
     try {
       const productId = getProductIdForSku(itemSku);
-      
+
       // Use cached session gender or fetch if not available
       let gender = sessionGender;
       if (!gender && sessionId) {
         gender = await VestiaAPI.getSessionGender(sessionId);
         setSessionGender(gender);
       }
-      
+
+      const effectivePrefs      = overridePrefs      !== undefined ? overridePrefs      : sessionPreferences;
+      const effectiveCustomerId = overrideCustomerId !== undefined ? overrideCustomerId : customerId;
+
       const recommendations = await VestiaAPI.getRecommendations(
         productId,
         category,
         gender || undefined,
         sessionId || undefined,
-        customerId || undefined,
-        sessionPreferences || undefined
+        effectiveCustomerId || undefined,
+        effectivePrefs || undefined
       );
-      
+
       setRecommendations(recommendations);
     } catch (err) {
       console.error("Error fetching recommendations:", err);
@@ -1612,38 +1624,18 @@ export default function SessionKioskPage() {
       {/* ── In-Session Preferences Modal ─────────────────────────────────── */}
       {isPrefsModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-8 flex flex-col gap-6">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-8 flex flex-col gap-6 max-h-[90vh] overflow-y-auto">
             <div>
-              <h2 className="text-2xl font-bold text-[#3B2A21] mb-1">Personalise Your Experience</h2>
-              <p className="text-sm text-[#8C6A4B]">Help us recommend the perfect outfit for you.</p>
-            </div>
-
-            {/* Sizes */}
-            <div>
-              <p className="text-sm font-semibold text-[#3B2A21] mb-3 uppercase tracking-wide">Your Sizes</p>
-              <div className="grid grid-cols-3 gap-3">
-                {(["XS","S","M","L","XL","XXL"] as const).map(s => (
-                  <button key={`top-${s}`} onClick={() => setPrefTopSize(prefTopSize === s ? "" : s)}
-                    className={`py-2 rounded-xl text-sm font-medium border transition-all ${prefTopSize === s ? "bg-[#4A3A2E] text-white border-[#4A3A2E]" : "border-[#E5D5C8] text-[#3B2A21] hover:border-[#4A3A2E]"}`}>
-                    Top {s}
-                  </button>
-                ))}
-              </div>
-              <div className="grid grid-cols-4 gap-3 mt-2">
-                {(["28","30","32","34","36","38","40","42"] as const).map(s => (
-                  <button key={`bot-${s}`} onClick={() => setPrefBottomSize(prefBottomSize === s ? "" : s)}
-                    className={`py-2 rounded-xl text-sm font-medium border transition-all ${prefBottomSize === s ? "bg-[#4A3A2E] text-white border-[#4A3A2E]" : "border-[#E5D5C8] text-[#3B2A21] hover:border-[#4A3A2E]"}`}>
-                    {s}
-                  </button>
-                ))}
-              </div>
+              <h2 className="text-2xl font-bold text-[#3B2A21] mb-1">Personalise Your Look</h2>
+              <p className="text-sm text-[#8C6A4B]">The more you tell us, the better your recommendations get.</p>
             </div>
 
             {/* Colour preferences */}
             <div>
-              <p className="text-sm font-semibold text-[#3B2A21] mb-3 uppercase tracking-wide">Preferred Colours <span className="font-normal normal-case text-[#8C6A4B]">(pick any)</span></p>
+              <p className="text-sm font-semibold text-[#3B2A21] mb-1 uppercase tracking-wide">Preferred Colours</p>
+              <p className="text-xs text-[#8C6A4B] mb-3">Pick any you like wearing</p>
               <div className="flex flex-wrap gap-2">
-                {["black","white","navy","grey","beige","brown","green","red","pink","blue","denim","olive"].map(c => (
+                {["black","white","navy","grey","beige","brown","green","red","pink","blue","olive","burgundy"].map(c => (
                   <button key={c} onClick={() => togglePrefColor(c)}
                     className={`px-3 py-1.5 rounded-full text-xs font-medium border capitalize transition-all ${prefColors.includes(c) ? "bg-[#4A3A2E] text-white border-[#4A3A2E]" : "border-[#E5D5C8] text-[#3B2A21] hover:border-[#4A3A2E]"}`}>
                     {c}
@@ -1654,12 +1646,41 @@ export default function SessionKioskPage() {
 
             {/* Style preferences */}
             <div>
-              <p className="text-sm font-semibold text-[#3B2A21] mb-3 uppercase tracking-wide">Your Style</p>
+              <p className="text-sm font-semibold text-[#3B2A21] mb-1 uppercase tracking-wide">Your Style</p>
+              <p className="text-xs text-[#8C6A4B] mb-3">What occasions are you dressing for?</p>
               <div className="flex flex-wrap gap-2">
                 {["casual","formal","sports","ethnic","party","smart casual"].map(s => (
                   <button key={s} onClick={() => togglePrefStyle(s)}
                     className={`px-4 py-2 rounded-full text-sm font-medium border capitalize transition-all ${prefStyles.includes(s) ? "bg-[#4A3A2E] text-white border-[#4A3A2E]" : "border-[#E5D5C8] text-[#3B2A21] hover:border-[#4A3A2E]"}`}>
                     {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Pattern preferences */}
+            <div>
+              <p className="text-sm font-semibold text-[#3B2A21] mb-1 uppercase tracking-wide">Patterns You Like</p>
+              <p className="text-xs text-[#8C6A4B] mb-3">Drives which prints and textures we recommend</p>
+              <div className="flex flex-wrap gap-2">
+                {["solid","striped","checked","printed","graphic","floral","abstract","colourblock"].map(p => (
+                  <button key={p} onClick={() => togglePrefPattern(p)}
+                    className={`px-4 py-2 rounded-full text-sm font-medium border capitalize transition-all ${prefPatterns.includes(p) ? "bg-[#4A3A2E] text-white border-[#4A3A2E]" : "border-[#E5D5C8] text-[#3B2A21] hover:border-[#4A3A2E]"}`}>
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Fabric preferences */}
+            <div>
+              <p className="text-sm font-semibold text-[#3B2A21] mb-1 uppercase tracking-wide">Fabric Preference</p>
+              <p className="text-xs text-[#8C6A4B] mb-3">What do you like wearing against your skin?</p>
+              <div className="flex flex-wrap gap-2">
+                {["cotton","denim","synthetic","linen","wool","jersey","polyester","leather"].map(f => (
+                  <button key={f} onClick={() => togglePrefFabric(f)}
+                    className={`px-4 py-2 rounded-full text-sm font-medium border capitalize transition-all ${prefFabrics.includes(f) ? "bg-[#4A3A2E] text-white border-[#4A3A2E]" : "border-[#E5D5C8] text-[#3B2A21] hover:border-[#4A3A2E]"}`}>
+                    {f}
                   </button>
                 ))}
               </div>
@@ -1672,16 +1693,15 @@ export default function SessionKioskPage() {
               </button>
               <button onClick={handleSavePreferences}
                 className="flex-1 py-3 bg-[#4A3A2E] text-white rounded-xl font-semibold hover:bg-[#3B2A21] transition-all shadow-md">
-                Save Preferences
+                Update Recommendations
               </button>
             </div>
 
-            {/* Optional: link a loyalty account */}
             <p className="text-center text-xs text-[#8C6A4B]">
               Have a loyalty account?{" "}
               <button onClick={() => { setIsPrefsModalOpen(false); setIsCustomerLoginOpen(true); }}
                 className="underline font-medium text-[#4A3A2E]">
-                Link it for personalised recommendations
+                Link it for full personalisation
               </button>
             </p>
           </div>
