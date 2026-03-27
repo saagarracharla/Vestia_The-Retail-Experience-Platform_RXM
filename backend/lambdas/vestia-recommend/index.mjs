@@ -37,6 +37,17 @@ const CATEGORY_COMPLEMENTS = {
   accessory: ["top", "bottom", "shoes"],
 };
 
+// Article types that should never surface as outfit recommendations regardless
+// of how they are categorised in the raw Myntra dataset (e.g. briefs show up
+// as category "top" because Myntra uses "Innerwear Tops").
+const EXCLUDED_ARTICLE_TYPES = new Set([
+  "briefs", "boxer", "boxers", "trunks", "trunk",
+  "bra", "bralette", "sports bra",
+  "innerwear vests", "innerwear",
+  "shapewear", "swimwear", "swimsuit",
+  "nightwear", "pyjamas", "robe",
+]);
+
 const CORS = {
   "Content-Type": "application/json",
   "Access-Control-Allow-Origin": "*",
@@ -137,7 +148,8 @@ export const handler = async (event) => {
     for (const cat of targetCategories) {
       // ── 7. Apply category constraint ────────────────────────────────────────
       const catCandidates = candidates.filter(c =>
-        (c.category || "").toLowerCase() === cat
+        (c.category || "").toLowerCase() === cat &&
+        !EXCLUDED_ARTICLE_TYPES.has((c.articleType || "").toLowerCase())
       );
 
       // ── 8. Score all candidates ──────────────────────────────────────────────
@@ -629,7 +641,10 @@ async function handleOutfitMode({ productIds, gender, sessionId, customerId, ses
   // 8. Score each candidate against ALL base items — average the scores
   const outfitResult = {};
   for (const cat of missingCategories) {
-    const catCandidates = candidates.filter(c => (c.category || "").toLowerCase() === cat);
+    const catCandidates = candidates.filter(c =>
+      (c.category || "").toLowerCase() === cat &&
+      !EXCLUDED_ARTICLE_TYPES.has((c.articleType || "").toLowerCase())
+    );
 
     const scored = catCandidates.map(candidate => {
       let totalScore = 0;
