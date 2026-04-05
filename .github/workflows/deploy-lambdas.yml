@@ -1,0 +1,34 @@
+name: Deploy Changed Lambdas
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/lambdas/**'
+
+jobs:
+  deploy:
+    name: Deploy to AWS Lambda
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Important: Fetch all history so 'git diff' works correctly to find changed files
+          
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ca-central-1
+
+      - name: Run Deployment Script
+        run: |
+          # Make the script executable
+          chmod +x backend/scripts/deploy_changed.sh
+          
+          # Run the deployment script
+          ./backend/scripts/deploy_changed.sh

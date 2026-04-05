@@ -1,126 +1,182 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, UpdateCommand, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, ScanCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 
 const client = new DynamoDBClient({ region: "ca-central-1" });
 const docClient = DynamoDBDocumentClient.from(client);
 
+const VALID_STATUSES = new Set(["QUEUED", "CLAIMED", "DELIVERED", "CANCELLED"]);
+const ALLOWED_TRANSITIONS = {
+  QUEUED: new Set(["CANCELLED"]),
+  CLAIMED: new Set(["DELIVERED", "CANCELLED"]),
+  DELIVERED: new Set(),
+  CANCELLED: new Set(),
+};
+
+const CORS_HEADERS = {
+  "Content-Type": "application/json",
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "PATCH, OPTIONS",
+  "Access-Control-Allow-Headers": "content-type",
+};
+
+function res(statusCode, body) {
+  return {
+    statusCode,
+    headers: CORS_HEADERS,
+    body: JSON.stringify(body),
+  };
+}
+
+async function findRequestRecord(requestId) {
+  const result = await docClient.send(new ScanCommand({
+    TableName: "VestiaSessions",
+    FilterExpression: "SK = :sk AND entityType = :entityType",
+    ExpressionAttributeValues: {
+      ":sk": `REQUEST#${requestId}`,
+      ":entityType": "REQUEST",
+    },
+  }));
+
+  const items = result.Items || [];
+  return items.find(item => item.PK?.startsWith("SESSION#")) || items[0] || null;
+}
+
+function getTargetStatus(body) {
+  if (body.action === "delivered") {
+    return "DELIVERED";
+  }
+
+  return body.status;
+}
+
 export const handler = async (event) => {
+  if (event.requestContext?.http?.method === "OPTIONS") {
+    return { statusCode: 200, headers: CORS_HEADERS, body: "" };
+  }
+
   try {
-    const { requestId } = event.pathParameters;
-    const { status, action } = JSON.parse(event.body);
-    
+    const { requestId } = event.pathParameters || {};
+    const body = JSON.parse(event.body || "{}");
+    const targetStatus = getTargetStatus(body);
+
     if (!requestId) {
-      return {
-        statusCode: 400,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ error: "requestId is required" })
-      };
+      return res(400, { error: "requestId is required" });
     }
 
-    // Get request from store partition to get full details
-    const storeQuery = await docClient.send(new GetCommand({
-      TableName: "VestiaSessions",
-      Key: {
-        PK: "STORE#STORE-001",
-        SK: `REQUEST#${requestId}`
-      }
-    }));
-
-    if (!storeQuery.Item) {
-      return {
-        statusCode: 404,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ error: "Request not found" })
-      };
+    if (!targetStatus || !VALID_STATUSES.has(targetStatus)) {
+      return res(400, { error: "A valid target status is required" });
     }
 
-    const request = storeQuery.Item;
+    if (targetStatus === "CLAIMED") {
+      return res(400, { error: "Use PATCH /request/{id}/claim to claim a request" });
+    }
+
+    const request = await findRequestRecord(requestId);
+    if (!request) {
+      return res(404, { error: "Request not found" });
+    }
+
+    const currentStatus = request.status;
+    if (currentStatus === targetStatus) {
+      return res(200, {
+        message: "Request already in requested state",
+        status: currentStatus,
+        autoScan: false,
+        alreadyInState: true,
+      });
+    }
+
+    if (!ALLOWED_TRANSITIONS[currentStatus]?.has(targetStatus)) {
+      return res(409, {
+        error: `Invalid transition from ${currentStatus} to ${targetStatus}`,
+        currentStatus,
+        targetStatus,
+      });
+    }
+
     const timestamp = new Date().toISOString();
-    let newStatus = status;
-
-    // Handle special "delivered" action
-    if (action === "delivered") {
-      newStatus = "DELIVERED";
-      
-      // Auto-create SCAN event when delivered
-      const scanEvent = {
-        PK: `SESSION#${request.sessionId}`,
-        SK: `SCAN#${timestamp}`,
-        entityType: "SCAN",
-        sessionId: request.sessionId,
-        sku: request.sku,
-        kioskId: request.kioskId,
-        createdAt: timestamp,
-        source: "staff"
-      };
-
-      await docClient.send(new PutCommand({
-        TableName: "VestiaSessions",
-        Item: scanEvent
-      }));
-    }
-
-    // Update both session and store partitions
-    // Build dynamic update expression to track status transition timestamps
-    let updateExpression = "SET #status = :status, updatedAt = :timestamp";
-    const exprValues = {
-      ":status": newStatus,
-      ":timestamp": timestamp
-    };
+    let updateExpression = "SET #status = :targetStatus, updatedAt = :timestamp";
     const exprNames = { "#status": "status" };
-
-    // Track when request is claimed (picked up by employee)
-    if (newStatus === "CLAIMED" && !request.claimedAt) {
-      updateExpression += ", claimedAt = :claimedAt";
-      exprValues[":claimedAt"] = timestamp;
-    }
-
-    // Track when request is delivered
-    if (newStatus === "DELIVERED" && !request.deliveredAt) {
-      updateExpression += ", deliveredAt = :deliveredAt";
-      exprValues[":deliveredAt"] = timestamp;
-    }
-
-    const updateParams = {
-      TableName: "VestiaSessions",
-      UpdateExpression: updateExpression,
-      ExpressionAttributeNames: exprNames,
-      ExpressionAttributeValues: exprValues
+    const exprValues = {
+      ":currentStatus": currentStatus,
+      ":targetStatus": targetStatus,
+      ":timestamp": timestamp,
     };
 
-    // Update in session partition
-    await docClient.send(new UpdateCommand({
-      ...updateParams,
-      Key: {
-        PK: `SESSION#${request.sessionId}`,
-        SK: `REQUEST#${requestId}`
-      }
+    if (targetStatus === "DELIVERED") {
+      updateExpression += ", deliveredAt = if_not_exists(deliveredAt, :timestamp)";
+    }
+
+    if (targetStatus === "CANCELLED") {
+      updateExpression += ", cancelledAt = if_not_exists(cancelledAt, :timestamp)";
+    }
+
+    const transactItems = [
+      {
+        Update: {
+          TableName: "VestiaSessions",
+          Key: {
+            PK: `SESSION#${request.sessionId}`,
+            SK: `REQUEST#${requestId}`,
+          },
+          ConditionExpression: "#status = :currentStatus",
+          UpdateExpression: updateExpression,
+          ExpressionAttributeNames: exprNames,
+          ExpressionAttributeValues: exprValues,
+        },
+      },
+      {
+        Update: {
+          TableName: "VestiaSessions",
+          Key: {
+            PK: `STORE#${request.storeId}`,
+            SK: `REQUEST#${requestId}`,
+          },
+          ConditionExpression: "#status = :currentStatus",
+          UpdateExpression: updateExpression,
+          ExpressionAttributeNames: exprNames,
+          ExpressionAttributeValues: exprValues,
+        },
+      },
+    ];
+
+    if (targetStatus === "DELIVERED") {
+      transactItems.push({
+        Put: {
+          TableName: "VestiaSessions",
+          Item: {
+            PK: `SESSION#${request.sessionId}`,
+            SK: `SCAN#${timestamp}#${requestId}`,
+            entityType: "SCAN",
+            sessionId: request.sessionId,
+            sku: request.sku,
+            kioskId: request.kioskId,
+            createdAt: timestamp,
+            source: "staff",
+            requestId,
+          },
+        },
+      });
+    }
+
+    await docClient.send(new TransactWriteCommand({
+      TransactItems: transactItems,
     }));
 
-    // Update in store partition
-    await docClient.send(new UpdateCommand({
-      ...updateParams,
-      Key: {
-        PK: `STORE#${request.storeId}`,
-        SK: `REQUEST#${requestId}`
-      }
-    }));
-
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        message: "Request updated",
-        status: newStatus,
-        autoScan: action === "delivered"
-      })
-    };
+    return res(200, {
+      message: "Request updated",
+      status: targetStatus,
+      autoScan: targetStatus === "DELIVERED",
+    });
   } catch (error) {
-    console.error("Error:", error);
-    return {
-      statusCode: 500,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "Internal server error" })
-    };
+    console.error("Error updating request:", error);
+
+    if (error.name === "TransactionCanceledException" || error.name === "ConditionalCheckFailedException") {
+      return res(409, {
+        error: "Request status changed before this update completed.",
+      });
+    }
+
+    return res(500, { error: "Internal server error" });
   }
 };

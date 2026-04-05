@@ -347,8 +347,8 @@ export class VestiaAPI {
     await this.updateRequest(requestId, { status: "CANCELLED" });
   }
 
-  static async pickupRequest(requestId: string): Promise<void> {
-    await this.updateRequest(requestId, { status: "CLAIMED" });
+  static async pickupRequest(requestId: string, employeeId: string): Promise<void> {
+    await this.claimRequest(requestId, employeeId);
   }
 
   static async deliverRequest(requestId: string): Promise<void> {
