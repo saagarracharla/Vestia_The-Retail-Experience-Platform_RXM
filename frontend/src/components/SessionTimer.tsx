@@ -1,47 +1,48 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 interface SessionTimerProps {
-  startTime: Date | null;
+  lastActivityAt: Date | null;
   onTimeExpired?: () => void;
-  maxDuration?: number; // in seconds, default 15 minutes
+  maxDuration?: number; // inactivity timeout in seconds
 }
 
 export default function SessionTimer({ 
-  startTime, 
+  lastActivityAt,
   onTimeExpired,
   maxDuration = 15 * 60 
 }: SessionTimerProps) {
   const [timeLeft, setTimeLeft] = useState(maxDuration);
   const [showPopup, setShowPopup] = useState(false);
   const [hasNotifiedLowTime, setHasNotifiedLowTime] = useState(false);
+  const hasExpiredRef = useRef(false);
 
   useEffect(() => {
-    if (!startTime) {
+    setShowPopup(false);
+    setHasNotifiedLowTime(false);
+    hasExpiredRef.current = false;
+
+    if (!lastActivityAt) {
       setTimeLeft(maxDuration);
       return;
     }
 
     const updateTimer = () => {
       const now = new Date();
-      const elapsed = Math.floor((now.getTime() - startTime.getTime()) / 1000);
+      const elapsed = Math.floor((now.getTime() - lastActivityAt.getTime()) / 1000);
       const remaining = Math.max(0, maxDuration - elapsed);
       
       setTimeLeft(remaining);
       
-      // Notify when 5 minutes remaining (only once)
       if (remaining <= 300 && remaining > 0 && !hasNotifiedLowTime) {
         setHasNotifiedLowTime(true);
-        // Optional: trigger a subtle notification
       }
       
-      // Show popup when time is up
-      if (remaining === 0 && !showPopup) {
+      if (remaining === 0 && !hasExpiredRef.current) {
+        hasExpiredRef.current = true;
         setShowPopup(true);
-        if (onTimeExpired) {
-          onTimeExpired();
-        }
+        onTimeExpired?.();
       }
     };
 
@@ -49,21 +50,20 @@ export default function SessionTimer({
     const interval = setInterval(updateTimer, 1000);
 
     return () => clearInterval(interval);
-  }, [startTime, showPopup, maxDuration, onTimeExpired, hasNotifiedLowTime]);
+  }, [lastActivityAt, maxDuration, onTimeExpired, hasNotifiedLowTime]);
 
-  if (!startTime) return null;
+  if (!lastActivityAt) return null;
 
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;
-  const isLowTime = timeLeft <= 300 && timeLeft > 0; // Last 5 minutes
+  const isLowTime = timeLeft <= 300 && timeLeft > 0;
   const isExpired = timeLeft === 0;
 
-  // Accessibility: Screen reader announcement
   const timeAnnouncement = isExpired 
-    ? "Session time expired" 
+    ? "Session expired due to inactivity" 
     : isLowTime 
-    ? `Warning: ${minutes} minutes remaining` 
-    : `${minutes} minutes and ${seconds} seconds remaining`;
+    ? `Warning: ${minutes} minutes remaining before timeout` 
+    : `${minutes} minutes and ${seconds} seconds before timeout`;
 
   return (
     <>
@@ -87,12 +87,11 @@ export default function SessionTimer({
         >
           <span className="sr-only">{timeAnnouncement}</span>
           <span aria-hidden="true">
-            Time Left: {String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}
+            Idle Timeout: {String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}
           </span>
         </span>
       </div>
 
-      {/* Popup Modal - Enhanced with accessibility */}
       {showPopup && (
         <div 
           className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
@@ -118,13 +117,13 @@ export default function SessionTimer({
                 id="timer-expired-title"
                 className="text-xl font-bold text-gray-900 mb-2"
               >
-                Time's Up!
+                Session Expired
               </h3>
               <p 
                 id="timer-expired-description"
                 className="text-gray-600 mb-6"
               >
-                15 minutes is up, please exit changeroom
+                Session expired due to inactivity. Returning to the welcome screen.
               </p>
             </div>
             <button
@@ -140,4 +139,3 @@ export default function SessionTimer({
     </>
   );
 }
-

@@ -18,6 +18,7 @@ export default function WelcomeScreen() {
     const startTime = new Date();
     localStorage.setItem("sessionId", sessionId);
     localStorage.setItem("sessionStartTime", startTime.toISOString());
+    localStorage.setItem("sessionLastActivityTime", startTime.toISOString());
     router.push("/kiosk/session");
   }
 

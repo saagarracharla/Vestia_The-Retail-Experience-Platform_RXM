@@ -32,6 +32,7 @@ export default function SessionKioskPage() {
   const router = useRouter();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
+  const [lastActivityTime, setLastActivityTime] = useState<Date | null>(null);
   const [sku, setSku] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [selectedMainIndex, setSelectedMainIndex] = useState<number>(-1);
@@ -46,6 +47,7 @@ export default function SessionKioskPage() {
   const submittedRequestsRef = useRef<Set<string>>(new Set());
   const scanDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const requestInProgressRef = useRef(false);
+  const lastActivityWriteRef = useRef<number>(0);
 
   // Cache session gender to avoid repeated API calls
   const [sessionGender, setSessionGender] = useState<string | null>(null);
@@ -115,19 +117,106 @@ export default function SessionKioskPage() {
     };
   }, []);
 
+  const clearSessionState = useCallback(() => {
+    localStorage.removeItem("sessionId");
+    localStorage.removeItem("sessionStartTime");
+    localStorage.removeItem("sessionLastActivityTime");
+    localStorage.removeItem("kioskNotification");
+
+    submittedRequestsRef.current.clear();
+    requestInProgressRef.current = false;
+    lastActivityWriteRef.current = 0;
+
+    setSessionId(null);
+    setSessionStartTime(null);
+    setLastActivityTime(null);
+    setItems([]);
+    setSelectedMainIndex(-1);
+    setNotification(null);
+    setPendingRequests([]);
+    setSelectedItem(null);
+    setRequestedSize("");
+    setRequestedColor("");
+    setRecommendations([]);
+    setOutfitSelections(new Set());
+    setOutfitResult(null);
+    setIsRequestModalOpen(false);
+    setIsFeedbackModalOpen(false);
+    setIsEndSessionModalOpen(false);
+    setIsPrefsModalOpen(false);
+    setIsCustomerLoginOpen(false);
+    setCustomerId(null);
+    setCustomerProfile(null);
+    setSessionPreferences(null);
+    setSessionGender(null);
+    setSku("");
+    setMessage("");
+    setMessageType("success");
+    setFeedbackRating("5");
+    setFeedbackComment("");
+    setPrefColors([]);
+    setPrefStyles([]);
+    setPrefPatterns([]);
+    setPrefFabrics([]);
+    setMixMatchMode(false);
+    setSavedShareCode(null);
+  }, []);
+
+  const markSessionActivity = useCallback(() => {
+    if (!sessionId) return;
+
+    const now = Date.now();
+    if (now - lastActivityWriteRef.current < 1000) {
+      return;
+    }
+
+    lastActivityWriteRef.current = now;
+    const activityAt = new Date(now);
+    localStorage.setItem("sessionLastActivityTime", activityAt.toISOString());
+    setLastActivityTime(activityAt);
+  }, [sessionId]);
+
+  const handleSessionTimeout = useCallback(() => {
+    clearSessionState();
+    router.replace("/");
+  }, [clearSessionState, router]);
+
   // Restore session or redirect to welcome
   useEffect(() => {
     const savedSessionId = localStorage.getItem("sessionId");
     const savedStartTime = localStorage.getItem("sessionStartTime");
+    const savedLastActivityTime = localStorage.getItem("sessionLastActivityTime");
 
     if (savedSessionId && savedStartTime) {
       setSessionId(savedSessionId);
-      setSessionStartTime(new Date(savedStartTime));
+      const parsedStart = new Date(savedStartTime);
+      const parsedLastActivity = new Date(savedLastActivityTime || savedStartTime);
+      setSessionStartTime(parsedStart);
+      setLastActivityTime(parsedLastActivity);
+      lastActivityWriteRef.current = parsedLastActivity.getTime();
       loadSession(savedSessionId);
     } else {
       router.push("/");
     }
   }, [router]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const handleActivity = () => {
+      markSessionActivity();
+    };
+
+    window.addEventListener("pointerdown", handleActivity);
+    window.addEventListener("keydown", handleActivity);
+    window.addEventListener("touchstart", handleActivity);
+
+    return () => {
+      window.removeEventListener("pointerdown", handleActivity);
+      window.removeEventListener("keydown", handleActivity);
+      window.removeEventListener("touchstart", handleActivity);
+    };
+  }, [markSessionActivity, sessionId]);
 
   // Listen for notifications from admin panel via localStorage
   useEffect(() => {
@@ -226,6 +315,7 @@ export default function SessionKioskPage() {
 
     const skuToScan = sku.trim();
     const currentSessionId = sessionId || "demo_session";
+    markSessionActivity();
 
     // Check if this SKU was just scanned (prevent duplicate scans)
     const recentScanKey = `scan:${currentSessionId}:${skuToScan}`;
@@ -319,6 +409,7 @@ export default function SessionKioskPage() {
     const currentSize = requestedSize;
     const currentColor = requestedColor;
     const currentItemName = selectedItem.product?.name || 'Unknown Product';
+    markSessionActivity();
 
     setMessage("");
 
@@ -394,6 +485,7 @@ export default function SessionKioskPage() {
     if (!sessionId) return;
 
     setMessage("");
+    markSessionActivity();
     try {
       await VestiaAPI.submitSessionFeedback(sessionId, {
         overallRating: Number(feedbackRating),
@@ -427,9 +519,7 @@ export default function SessionKioskPage() {
         wouldReturn: feedback.wouldReturn,
       });
 
-      // Clear session data
-      localStorage.removeItem("sessionId");
-      localStorage.removeItem("sessionStartTime");
+      clearSessionState();
       
       // Show success notification
       setNotification({
@@ -452,6 +542,7 @@ export default function SessionKioskPage() {
   }
 
   async function handleSavePreferences() {
+    markSessionActivity();
     const prefs: SessionPreferences = {
       preferredColors:   prefColors,
       preferredStyles:   prefStyles,
@@ -786,7 +877,7 @@ export default function SessionKioskPage() {
             </div>
             {sessionStartTime && (
               <div className="px-4 py-2 bg-white/60 rounded-full border border-[#E5D5C8]">
-                <SessionTimer startTime={sessionStartTime} />
+                <SessionTimer lastActivityAt={lastActivityTime} onTimeExpired={handleSessionTimeout} />
               </div>
             )}
             {/* Preferences indicator / trigger */}
@@ -848,7 +939,7 @@ export default function SessionKioskPage() {
                     End Session
                   </button>
                 )}
-                <SessionTimer startTime={sessionStartTime} />
+                <SessionTimer lastActivityAt={lastActivityTime} onTimeExpired={handleSessionTimeout} />
               </div>
             </div>
 
