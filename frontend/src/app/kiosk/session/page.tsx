@@ -8,11 +8,25 @@ import SessionTimer from "@/components/SessionTimer";
 import Notification from "@/components/Notification";
 import EndSessionModal, { SessionFeedback } from "@/components/EndSessionModal";
 import LoadingSpinner from "@/components/LoadingSpinner";
-import { VestiaAPI, RecommendationItem, ItemWithProduct, SessionPreferences, CustomerProfile, OutfitResult, SavedOutfitItem } from "@/lib/api";
+import { VestiaAPI, RecommendationItem, ItemWithProduct, SessionPreferences, CustomerProfile, OutfitResult, SavedOutfitItem, APIRequestError } from "@/lib/api";
 
 type Item = ItemWithProduct;
 
 type CategoryFilter = "top" | "bottom" | "shoes" | "accessory" | "all";
+
+function normalizeRequestSize(value: string) {
+  return value.trim().toUpperCase();
+}
+
+function normalizeRequestColor(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function buildRequestDedupKey(sessionId: string, sku: string, requestedSize: string, requestedColor: string) {
+  const size = requestedSize.trim() ? normalizeRequestSize(requestedSize) : "none";
+  const color = requestedColor.trim() ? normalizeRequestColor(requestedColor) : "none";
+  return `request:${sessionId}:${sku.trim()}:${size}:${color}`;
+}
 
 export default function SessionKioskPage() {
   const router = useRouter();
@@ -214,7 +228,7 @@ export default function SessionKioskPage() {
     const currentSessionId = sessionId || "demo_session";
 
     // Check if this SKU was just scanned (prevent duplicate scans)
-    const recentScanKey = `${currentSessionId}-${skuToScan}`;
+    const recentScanKey = `scan:${currentSessionId}:${skuToScan}`;
     if (submittedRequestsRef.current.has(recentScanKey)) {
       setMessage("This item was just scanned. Please wait a moment.");
       setMessageType("error");
@@ -281,12 +295,17 @@ export default function SessionKioskPage() {
       return;
     }
 
-    // Create unique request key for deduplication
-    const requestKey = `${sessionId || "demo_session"}-${selectedItem.sku}-${requestedSize}-${requestedColor}-${Date.now()}`;
+    const requestKey = buildRequestDedupKey(
+      sessionId || "demo_session",
+      selectedItem.sku,
+      requestedSize,
+      requestedColor
+    );
     
     // Check if this exact request was just submitted
     if (submittedRequestsRef.current.has(requestKey)) {
-      console.log("Duplicate request detected, ignoring");
+      setMessage("This request is already being submitted. Please wait.");
+      setMessageType("error");
       return;
     }
 
@@ -334,18 +353,30 @@ export default function SessionKioskPage() {
       // Note: Removed unnecessary session refresh - it's already polled every 5 seconds
       // This reduces API calls and improves performance
 
-      // Remove from deduplication set after 3 seconds
+      // Keep the client-side key briefly to absorb repeated taps.
+      // Longer-lived duplicate protection is enforced in the backend.
       setTimeout(() => {
         submittedRequestsRef.current.delete(requestKey);
-      }, 3000);
+      }, 10000);
     } catch (err) {
       console.error("Request submission error:", err);
-      setMessage("Network error while sending request.");
-      setMessageType("error");
+
+      if (err instanceof APIRequestError && err.status === 409) {
+        setIsRequestModalOpen(false);
+        setSelectedItem(null);
+        setRequestedSize("");
+        setRequestedColor("");
+        setMessage("An active request for this item, size, and colour already exists.");
+        setMessageType("error");
+      } else {
+        setMessage("Network error while sending request.");
+        setMessageType("error");
+        // Re-open modal on error so user can try again
+        setIsRequestModalOpen(true);
+      }
+
       // Remove from deduplication set on error so user can retry
       submittedRequestsRef.current.delete(requestKey);
-      // Re-open modal on error so user can try again
-      setIsRequestModalOpen(true);
     } finally {
       setIsSubmittingRequest(false);
       requestInProgressRef.current = false;

@@ -158,6 +158,18 @@ export interface SessionData {
   items: SessionItem[];
 }
 
+export class APIRequestError extends Error {
+  status: number;
+  body: string;
+
+  constructor(status: number, statusText: string, body: string) {
+    super(`API Error: ${status} ${statusText}`);
+    this.name = "APIRequestError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
 // API Client
 export class VestiaAPI {
   private static async request<T>(
@@ -180,7 +192,7 @@ export class VestiaAPI {
       if (response.status !== 404) {
         console.error(`API Error: ${response.status} ${response.statusText}`, errorText);
       }
-      throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
+      throw new APIRequestError(response.status, response.statusText, errorText);
     }
 
     const data = await response.json();
