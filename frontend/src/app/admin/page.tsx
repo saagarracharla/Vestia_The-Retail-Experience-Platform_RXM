@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Navbar from "@/components/Navbar";
 import LoadingSpinner from "@/components/LoadingSpinner";
 
@@ -18,12 +18,29 @@ type RequestItem = {
   createdAt?: string;
 };
 
+type StoreRequestResponse = {
+  requests: Array<{
+    sessionId: string;
+    sku: string;
+    kioskId?: string;
+    requestedSize: string | null;
+    requestedColor: string | null;
+    status: string;
+    requestId?: string;
+    name?: string;
+    price?: number;
+    createdAt?: string;
+  }>;
+};
+
 const STATUS_CONFIG: Record<string, { label: string; dot: string; badge: string; ring: string }> = {
   QUEUED:    { label: "Queued",    dot: "bg-amber-400",  badge: "status-queued",    ring: "ring-amber-200" },
-  CLAIMED:   { label: "Claimed",   dot: "bg-blue-400",   badge: "status-claimed",   ring: "ring-blue-200" },
+  CLAIMED:   { label: "Picked Up", dot: "bg-blue-400",   badge: "status-claimed",   ring: "ring-blue-200" },
   DELIVERED: { label: "Delivered", dot: "bg-emerald-400",badge: "status-delivered", ring: "ring-emerald-200" },
   CANCELLED: { label: "Cancelled", dot: "bg-red-300",    badge: "status-cancelled", ring: "ring-red-100" },
 };
+
+const STAFF_EMPLOYEE_ID = "ASSOCIATE-LOCAL";
 
 function timeAgo(ts?: string) {
   if (!ts) return "";
@@ -45,16 +62,16 @@ export default function AdminPage() {
     setTimeout(() => setToastMsg(null), 3500);
   }
 
-  async function loadRequests() {
+  const loadRequests = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch("https://993toyh3x5.execute-api.ca-central-1.amazonaws.com/store/STORE-001/request", {
         headers: { "Content-Type": "application/json" },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data: StoreRequestResponse = await res.json();
       setRequests(
-        data.requests.map((req: any, i: number) => ({
+        data.requests.map((req, i: number) => ({
           id: i + 1,
           sessionId: req.sessionId,
           sku: req.sku,
@@ -68,33 +85,53 @@ export default function AdminPage() {
           createdAt: req.createdAt,
         }))
       );
-    } catch (err) {
+    } catch {
       showToast("Failed to load requests", false);
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  async function updateRequest(r: RequestItem, status?: string, action?: string) {
+  async function updateRequest(r: RequestItem, operation: "claim" | "cancel" | "deliver") {
     if (!r.requestId) return;
-    const key = `${r.requestId}-${status}-${action}`;
+    const key = `${r.requestId}-${operation}`;
     if (inProgressRef.current.has(key)) return;
     inProgressRef.current.add(key);
     setUpdatingId(r.requestId);
     try {
-      const body: any = {};
-      if (status) body.status = status;
-      if (action) body.action = action;
-      const res = await fetch(
-        `https://993toyh3x5.execute-api.ca-central-1.amazonaws.com/request/${r.requestId}`,
-        { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-      );
-      if (!res.ok) throw new Error();
+      const request =
+        operation === "claim"
+          ? {
+              url: `https://993toyh3x5.execute-api.ca-central-1.amazonaws.com/request/${r.requestId}/claim`,
+              body: { employeeId: STAFF_EMPLOYEE_ID },
+            }
+          : operation === "deliver"
+            ? {
+                url: `https://993toyh3x5.execute-api.ca-central-1.amazonaws.com/request/${r.requestId}`,
+                body: { action: "delivered" },
+              }
+            : {
+                url: `https://993toyh3x5.execute-api.ca-central-1.amazonaws.com/request/${r.requestId}`,
+                body: { status: "CANCELLED" },
+              };
+
+      const res = await fetch(request.url, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request.body),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || `HTTP ${res.status}`);
+      }
+
       const result = await res.json();
       showToast(`Request updated → ${result.status}${result.autoScan ? " · item auto-scanned" : ""}`);
       setTimeout(loadRequests, 400);
-    } catch {
-      showToast("Failed to update request", false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to update request";
+      showToast(message.replace(/^Error:\s*/, ""), false);
     } finally {
       setTimeout(() => { inProgressRef.current.delete(key); setUpdatingId(null); }, 2000);
     }
@@ -104,7 +141,7 @@ export default function AdminPage() {
     loadRequests();
     const t = setInterval(loadRequests, 5000);
     return () => clearInterval(t);
-  }, []);
+  }, [loadRequests]);
 
   const active   = requests.filter(r => r.status === "QUEUED" || r.status === "CLAIMED");
   const done     = requests.filter(r => r.status === "DELIVERED" || r.status === "CANCELLED");
@@ -218,14 +255,14 @@ export default function AdminPage() {
                       {r.status === "QUEUED" && (
                         <>
                           <button
-                            onClick={() => updateRequest(r, "CANCELLED")}
+                            onClick={() => updateRequest(r, "cancel")}
                             disabled={busy}
                             className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 transition-all active:scale-95 disabled:opacity-50"
                           >
                             {busy ? <span className="flex justify-center"><LoadingSpinner size="sm" /></span> : "Cancel"}
                           </button>
                           <button
-                            onClick={() => updateRequest(r, "CLAIMED")}
+                            onClick={() => updateRequest(r, "claim")}
                             disabled={busy}
                             className="flex-[2] py-2.5 rounded-xl text-sm font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all active:scale-95 disabled:opacity-50"
                           >
@@ -235,7 +272,7 @@ export default function AdminPage() {
                       )}
                       {r.status === "CLAIMED" && (
                         <button
-                          onClick={() => updateRequest(r, undefined, "delivered")}
+                          onClick={() => updateRequest(r, "deliver")}
                           disabled={busy}
                           className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-300 transition-all active:scale-95 disabled:opacity-50 animate-pulse-glow"
                         >

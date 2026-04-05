@@ -1,103 +1,127 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, ScanCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 
 const client = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(client);
 
+const CORS_HEADERS = {
+  "Content-Type": "application/json",
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "PATCH, OPTIONS",
+  "Access-Control-Allow-Headers": "content-type",
+};
+
+function res(statusCode, body) {
+  return {
+    statusCode,
+    headers: CORS_HEADERS,
+    body: JSON.stringify(body),
+  };
+}
+
+async function findRequestRecord(requestId) {
+  const scanResponse = await docClient.send(new ScanCommand({
+    TableName: "VestiaSessions",
+    FilterExpression: "SK = :sk AND entityType = :entityType",
+    ExpressionAttributeValues: {
+      ":sk": `REQUEST#${requestId}`,
+      ":entityType": "REQUEST",
+    },
+  }));
+
+  const items = scanResponse.Items || [];
+  return items.find(item => item.PK?.startsWith("SESSION#")) || items[0] || null;
+}
+
 export const handler = async (event) => {
-    try {
-        const { requestId } = event.pathParameters;
-        const body = JSON.parse(event.body);
-        const { employeeId } = body;
-        
-        if (!requestId || !employeeId) {
-            return {
-                statusCode: 400,
-                body: JSON.stringify({ error: "requestId and employeeId are required" })
-            };
-        }
+  if (event.requestContext?.http?.method === "OPTIONS") {
+    return { statusCode: 200, headers: CORS_HEADERS, body: "" };
+  }
 
-        // Scan VestiaSessions to find REQUEST records by requestId
-        const scanResponse = await docClient.send(new ScanCommand({
-            TableName: "VestiaSessions",
-            FilterExpression: "SK = :sk AND entityType = :entityType",
-            ExpressionAttributeValues: {
-                ":sk": `REQUEST#${requestId}`,
-                ":entityType": "REQUEST"
-            }
-        }));
+  try {
+    const { requestId } = event.pathParameters || {};
+    const { employeeId } = JSON.parse(event.body || "{}");
 
-        if (!scanResponse.Items || scanResponse.Items.length === 0) {
-            return {
-                statusCode: 404,
-                body: JSON.stringify({ error: "Request not found" })
-            };
-        }
-
-        // Extract sessionId and storeId from the first record
-        const requestRecord = scanResponse.Items[0];
-        const { sessionId, storeId } = requestRecord;
-
-        // Update both SESSION# and STORE# records
-        const timestamp = new Date().toISOString();
-        
-        await Promise.all([
-            // Update session-side record
-            docClient.send(new UpdateCommand({
-                TableName: "VestiaSessions",
-                Key: {
-                    PK: `SESSION#${sessionId}`,
-                    SK: `REQUEST#${requestId}`
-                },
-                UpdateExpression: "SET #status = :status, employeeId = :employeeId, claimedAt = :timestamp",
-                ExpressionAttributeNames: {
-                    "#status": "status"
-                },
-                ExpressionAttributeValues: {
-                    ":status": "CLAIMED",
-                    ":employeeId": employeeId,
-                    ":timestamp": timestamp
-                }
-            })),
-            // Update store-side record
-            docClient.send(new UpdateCommand({
-                TableName: "VestiaSessions",
-                Key: {
-                    PK: `STORE#${storeId}`,
-                    SK: `REQUEST#${requestId}`
-                },
-                UpdateExpression: "SET #status = :status, employeeId = :employeeId, claimedAt = :timestamp",
-                ExpressionAttributeNames: {
-                    "#status": "status"
-                },
-                ExpressionAttributeValues: {
-                    ":status": "CLAIMED",
-                    ":employeeId": employeeId,
-                    ":timestamp": timestamp
-                }
-            }))
-        ]);
-
-        return {
-            statusCode: 200,
-            headers: {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*"
-            },
-            body: JSON.stringify({
-                message: "Request claimed successfully",
-                requestId,
-                status: "CLAIMED",
-                employeeId,
-                claimedAt: timestamp
-            })
-        };
-
-    } catch (error) {
-        console.error("Error claiming request:", error);
-        return {
-            statusCode: 500,
-            body: JSON.stringify({ error: "Internal server error" })
-        };
+    if (!requestId || !employeeId) {
+      return res(400, { error: "requestId and employeeId are required" });
     }
+
+    const requestRecord = await findRequestRecord(requestId);
+    if (!requestRecord) {
+      return res(404, { error: "Request not found" });
+    }
+
+    if (requestRecord.status !== "QUEUED") {
+      return res(409, {
+        error: `Only queued requests can be claimed. Current status is ${requestRecord.status}.`,
+        currentStatus: requestRecord.status,
+      });
+    }
+
+    const timestamp = new Date().toISOString();
+    const { sessionId, storeId } = requestRecord;
+
+    await docClient.send(new TransactWriteCommand({
+      TransactItems: [
+        {
+          Update: {
+            TableName: "VestiaSessions",
+            Key: {
+              PK: `SESSION#${sessionId}`,
+              SK: `REQUEST#${requestId}`,
+            },
+            ConditionExpression: "#status = :queued AND attribute_not_exists(employeeId)",
+            UpdateExpression: "SET #status = :claimed, employeeId = :employeeId, claimedAt = :timestamp, updatedAt = :timestamp",
+            ExpressionAttributeNames: {
+              "#status": "status",
+            },
+            ExpressionAttributeValues: {
+              ":queued": "QUEUED",
+              ":claimed": "CLAIMED",
+              ":employeeId": employeeId,
+              ":timestamp": timestamp,
+            },
+          },
+        },
+        {
+          Update: {
+            TableName: "VestiaSessions",
+            Key: {
+              PK: `STORE#${storeId}`,
+              SK: `REQUEST#${requestId}`,
+            },
+            ConditionExpression: "#status = :queued AND attribute_not_exists(employeeId)",
+            UpdateExpression: "SET #status = :claimed, employeeId = :employeeId, claimedAt = :timestamp, updatedAt = :timestamp",
+            ExpressionAttributeNames: {
+              "#status": "status",
+            },
+            ExpressionAttributeValues: {
+              ":queued": "QUEUED",
+              ":claimed": "CLAIMED",
+              ":employeeId": employeeId,
+              ":timestamp": timestamp,
+            },
+          },
+        },
+      ],
+    }));
+
+    return res(200, {
+      message: "Request claimed successfully",
+      requestId,
+      status: "CLAIMED",
+      employeeId,
+      claimedAt: timestamp,
+    });
+  } catch (error) {
+    console.error("Error claiming request:", error);
+
+    if (error.name === "TransactionCanceledException" || error.name === "ConditionalCheckFailedException") {
+      return res(409, {
+        error: "Request is no longer available to claim.",
+      });
+    }
+
+    return res(500, { error: "Internal server error" });
+  }
 };
