@@ -11,7 +11,7 @@ interface SessionTimerProps {
 export default function SessionTimer({ 
   lastActivityAt,
   onTimeExpired,
-  maxDuration = 15 * 60 
+  maxDuration = 5 * 60 
 }: SessionTimerProps) {
   const [timeLeft, setTimeLeft] = useState(maxDuration);
   const [showPopup, setShowPopup] = useState(false);
