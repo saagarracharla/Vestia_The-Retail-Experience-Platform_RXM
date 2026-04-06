@@ -6,7 +6,7 @@
  */
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 
 const client = new DynamoDBClient({ region: "ca-central-1" });
 const docClient = DynamoDBDocumentClient.from(client);
@@ -63,6 +63,8 @@ export const handler = async (event) => {
         preferredSizes:   body.preferredSizes   ?? existing.Item?.preferredSizes   ?? {},
         preferredColors:  body.preferredColors  ?? existing.Item?.preferredColors  ?? [],
         preferredStyles:  body.preferredStyles  ?? existing.Item?.preferredStyles  ?? [],
+        preferredPatterns: body.preferredPatterns ?? existing.Item?.preferredPatterns ?? [],
+        preferredFabrics:  body.preferredFabrics  ?? existing.Item?.preferredFabrics  ?? [],
         // Merge purchase history (append new entries)
         purchaseHistory:  [
           ...(existing.Item?.purchaseHistory ?? []),

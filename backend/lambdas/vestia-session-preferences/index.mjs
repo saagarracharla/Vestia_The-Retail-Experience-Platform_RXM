@@ -31,6 +31,8 @@ export const handler = async (event) => {
       preferredSizes,   // e.g. { top: "M", bottom: "32", shoes: "10" }
       preferredColors,  // e.g. ["black", "navy", "white"]
       preferredStyles,  // e.g. ["casual", "smart casual"]
+      preferredPatterns, // e.g. ["solid", "striped"]
+      preferredFabrics,  // e.g. ["cotton", "linen"]
     } = JSON.parse(event.body || "{}");
 
     if (!sessionId) {
@@ -49,6 +51,8 @@ export const handler = async (event) => {
         preferredSizes:  preferredSizes  ?? {},
         preferredColors: preferredColors ?? [],
         preferredStyles: preferredStyles ?? [],
+        preferredPatterns: preferredPatterns ?? [],
+        preferredFabrics: preferredFabrics ?? [],
         createdAt: timestamp,
       },
     }));
