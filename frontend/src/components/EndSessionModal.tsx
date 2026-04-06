@@ -33,12 +33,13 @@ export interface SessionFeedback {
   wouldReturn: boolean;
 }
 
+type ItemFeedbackEntry = SessionFeedback["itemFeedback"][number];
+
 export default function EndSessionModal({
   isOpen,
   onClose,
   onEndSession,
   items,
-  sessionId,
 }: EndSessionModalProps) {
   const [step, setStep] = useState<"overall" | "items" | "experience" | "summary">("overall");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -62,7 +63,11 @@ export default function EndSessionModal({
   const [experienceComment, setExperienceComment] = useState("");
   const [wouldReturn, setWouldReturn] = useState(true);
 
-  const handleItemFeedbackChange = (sku: string, field: keyof SessionFeedback["itemFeedback"][0], value: any) => {
+  const handleItemFeedbackChange = <K extends keyof ItemFeedbackEntry>(
+    sku: string,
+    field: K,
+    value: ItemFeedbackEntry[K]
+  ) => {
     setItemFeedback(prev =>
       prev.map(item =>
         item.sku === sku ? { ...item, [field]: value } : item
@@ -259,7 +264,7 @@ export default function EndSessionModal({
                         <select
                           value={feedback.fit || ""}
                           onChange={(e) =>
-                            handleItemFeedbackChange(item.sku, "fit", e.target.value as any)
+                            handleItemFeedbackChange(item.sku, "fit", (e.target.value || undefined) as ItemFeedbackEntry["fit"])
                           }
                           className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#4A3A2E]"
                         >
@@ -329,13 +334,13 @@ export default function EndSessionModal({
             
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Comments about the experience
+                Additional comments (optional)
               </label>
               <textarea
                 value={experienceComment}
                 onChange={(e) => setExperienceComment(e.target.value)}
-                placeholder="Was the staff helpful? How was the technology? Any suggestions?"
-                rows={4}
+                placeholder="Tell us about the staff, technology, or anything we should improve..."
+                rows={3}
                 className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#4A3A2E] focus:border-transparent transition-all resize-none"
               />
             </div>
@@ -391,6 +396,14 @@ export default function EndSessionModal({
 
         {/* Navigation Buttons */}
         <div className="flex gap-3 pt-4 border-t border-gray-200">
+          <button
+            onClick={handleSkip}
+            disabled={isSubmitting}
+            className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-300 disabled:opacity-50"
+          >
+            {isSubmitting ? "Ending..." : "Skip Feedback"}
+          </button>
+
           {step !== "overall" && (
             <button
               onClick={handleBack}
@@ -411,13 +424,6 @@ export default function EndSessionModal({
           ) : (
             <>
               <button
-                onClick={handleSkip}
-                disabled={isSubmitting}
-                className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-300 disabled:opacity-50"
-              >
-                Skip
-              </button>
-              <button
                 onClick={handleSubmit}
                 disabled={isSubmitting}
                 className="flex-1 px-4 py-2.5 bg-[#4A3A2E] hover:bg-[#3B2A21] disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#4A3A2E] focus:ring-offset-2"
@@ -431,4 +437,3 @@ export default function EndSessionModal({
     </Modal>
   );
 }
-
