@@ -1,18 +1,32 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 
 const client = new DynamoDBClient({ region: "ca-central-1" });
 const docClient = DynamoDBDocumentClient.from(client);
 
 export const handler = async (event) => {
   try {
-    const { sessionId, sku, kioskId } = JSON.parse(event.body);
+    const { sessionId, sku, kioskId } = JSON.parse(event.body || "{}");
+    const normalizedSku = typeof sku === "string" ? sku.trim() : "";
     
-    if (!sessionId || !sku || !kioskId) {
+    if (!sessionId || !normalizedSku || !kioskId) {
       return {
         statusCode: 400,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ error: "sessionId, sku, and kioskId are required" })
+      };
+    }
+
+    const product = await docClient.send(new GetCommand({
+      TableName: "ProductCatalog",
+      Key: { productId: normalizedSku }
+    }));
+
+    if (!product.Item) {
+      return {
+        statusCode: 404,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ error: `Invalid SKU: ${normalizedSku}` })
       };
     }
 
@@ -22,7 +36,7 @@ export const handler = async (event) => {
       SK: `SCAN#${timestamp}`,
       entityType: "SCAN",
       sessionId,
-      sku,
+      sku: normalizedSku,
       kioskId,
       createdAt: timestamp,
       source: "kiosk"
