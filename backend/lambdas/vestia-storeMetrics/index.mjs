@@ -37,6 +37,21 @@ function safeInc(obj, key) {
   obj[key] = (obj[key] || 0) + 1;
 }
 
+function isValidTimestamp(value) {
+  return Boolean(value) && !Number.isNaN(Date.parse(value));
+}
+
+function isValidSessionEvent(item) {
+  return (
+    item &&
+    item.PK?.startsWith("SESSION#") &&
+    (item.entityType === "SCAN" || item.entityType === "REQUEST") &&
+    typeof item.sessionId === "string" &&
+    item.sessionId.length > 0 &&
+    isValidTimestamp(item.createdAt)
+  );
+}
+
 export const handler = async (event = {}) => {
   if (!TABLE_NAME || !BUCKET_NAME) {
     return {
@@ -60,12 +75,12 @@ export const handler = async (event = {}) => {
   let ExclusiveStartKey = undefined;
 
   const filter = STORE_ID
-    ? "#createdAt BETWEEN :start AND :end AND #storeId = :storeId"
-    : "#createdAt BETWEEN :start AND :end";
+    ? "begins_with(PK, :sessionPk) AND #createdAt BETWEEN :start AND :end AND #storeId = :storeId AND entityType IN (:scanType, :requestType)"
+    : "begins_with(PK, :sessionPk) AND #createdAt BETWEEN :start AND :end AND entityType IN (:scanType, :requestType)";
 
   const values = STORE_ID
-    ? { ":start": startISO, ":end": endISO, ":storeId": STORE_ID }
-    : { ":start": startISO, ":end": endISO };
+    ? { ":sessionPk": "SESSION#", ":start": startISO, ":end": endISO, ":storeId": STORE_ID, ":scanType": "SCAN", ":requestType": "REQUEST" }
+    : { ":sessionPk": "SESSION#", ":start": startISO, ":end": endISO, ":scanType": "SCAN", ":requestType": "REQUEST" };
 
   // Safer: use ExpressionAttributeNames for reserved words or future conflicts
   const names = {
@@ -83,7 +98,7 @@ export const handler = async (event = {}) => {
         ExclusiveStartKey,
         // Optional: only fetch the attributes we actually use
         ProjectionExpression:
-          "createdAt, updatedAt, entityType, requestType, sessionId, sku, requestedSize, requestedColor, #storeId, #status",
+          "PK, createdAt, updatedAt, entityType, requestType, sessionId, sku, requestedSize, requestedColor, #storeId, #status",
         ExpressionAttributeNames: {
           ...names,
           "#status": "status"
@@ -94,6 +109,8 @@ export const handler = async (event = {}) => {
     items = items.concat(res.Items || []);
     ExclusiveStartKey = res.LastEvaluatedKey;
   } while (ExclusiveStartKey);
+
+  items = items.filter(isValidSessionEvent);
 
   const sessionMap = new Map();
   const skuCounts = {};
@@ -193,8 +210,7 @@ export const handler = async (event = {}) => {
     "top_color_2", "top_color_2_count",
     "top_color_3", "top_color_3_count",
     "status_DELIVERED",
-    "status_PICKED_UP",
-    "status_ON_THE_WAY",
+    "status_CLAIMED",
     "status_CANCELLED"
   ];
 
@@ -219,8 +235,7 @@ export const handler = async (event = {}) => {
     topColors[1]?.[0] || "", topColors[1]?.[1] || 0,
     topColors[2]?.[0] || "", topColors[2]?.[1] || 0,
     statusCounts["DELIVERED"] || 0,
-    statusCounts["PICKED_UP"] || 0,
-    statusCounts["ON_THE_WAY"] || 0,
+    statusCounts["CLAIMED"] || 0,
     statusCounts["CANCELLED"] || 0
   ];
 
