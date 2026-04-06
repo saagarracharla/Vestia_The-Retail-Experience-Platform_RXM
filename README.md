@@ -8,11 +8,22 @@ Vestia is a smart fitting room platform that connects customers, staff, and stor
 
 ## Quick Start
 
+**Prerequisites:** [Node.js 18+](https://nodejs.org) and npm (included with Node)
+
 ```bash
+# 1. Clone the repo
+git clone <repo-url>
+cd Vestia_The-Retail-Experience-Platform_RXM
+
+# 2. Install frontend dependencies
 cd frontend
 npm install
+
+# 3. Start the dev server
 npm run dev
 ```
+
+No environment variables or local backend setup needed — the backend runs on AWS and the frontend connects to it automatically.
 
 | URL | Interface |
 |-----|-----------|
