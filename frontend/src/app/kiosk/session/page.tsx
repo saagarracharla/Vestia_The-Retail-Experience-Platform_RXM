@@ -1189,6 +1189,11 @@ export default function SessionKioskPage() {
                         )}
                       </button>
                     </div>
+                    {message && (
+                      <p className={`text-sm mt-2 ${messageType === "error" ? "text-red-600" : "text-green-600"}`}>
+                        {message}
+                      </p>
+                    )}
                   </div>
                 </>
               )}
