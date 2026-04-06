@@ -19,6 +19,19 @@ function res(statusCode, body) {
   };
 }
 
+function getRequestType(requestedSize, requestedColor) {
+  if (requestedSize && requestedColor) {
+    return "size_color_change";
+  }
+  if (requestedSize) {
+    return "size_change";
+  }
+  if (requestedColor) {
+    return "color_change";
+  }
+  return "general";
+}
+
 export const handler = async (event) => {
   if (event.requestContext?.http?.method === "OPTIONS") {
     return { statusCode: 200, headers: CORS_HEADERS, body: "" };
@@ -52,14 +65,7 @@ export const handler = async (event) => {
     const requestId = `REQ-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
     const timestamp = new Date().toISOString();
 
-    let requestType = "general";
-    if (requestedSize && requestedColor) {
-      requestType = "size_color_change";
-    } else if (requestedSize) {
-      requestType = "size_change";
-    } else if (requestedColor) {
-      requestType = "color_change";
-    }
+    const requestType = getRequestType(requestedSize, requestedColor);
 
     const requestEvent = {
       entityType: "REQUEST",
@@ -74,6 +80,23 @@ export const handler = async (event) => {
       status: "QUEUED",
       createdAt: timestamp,
       updatedAt: timestamp,
+    };
+
+    const requestCreatedEvent = {
+      PK: `SESSION#${sessionId}`,
+      SK: `REQUEST_EVENT#${requestId}#${timestamp}`,
+      entityType: "REQUEST_EVENT",
+      eventType: "REQUEST_CREATED",
+      requestId,
+      sessionId,
+      storeId,
+      kioskId,
+      sku,
+      requestType,
+      requestedSize: requestedSize || null,
+      requestedColor: requestedColor || null,
+      status: "QUEUED",
+      createdAt: timestamp,
     };
 
     await docClient.send(new TransactWriteCommand({
@@ -97,6 +120,13 @@ export const handler = async (event) => {
               SK: `REQUEST#${requestId}`,
               ...requestEvent,
             },
+            ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
+          },
+        },
+        {
+          Put: {
+            TableName: "VestiaSessions",
+            Item: requestCreatedEvent,
             ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
           },
         },

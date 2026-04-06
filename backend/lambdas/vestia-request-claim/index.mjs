@@ -60,6 +60,22 @@ export const handler = async (event) => {
 
     const timestamp = new Date().toISOString();
     const { sessionId, storeId } = requestRecord;
+    const claimEvent = {
+      PK: `SESSION#${sessionId}`,
+      SK: `REQUEST_EVENT#${requestId}#${timestamp}`,
+      entityType: "REQUEST_EVENT",
+      eventType: "REQUEST_CLAIMED",
+      requestId,
+      sessionId,
+      storeId,
+      kioskId: requestRecord.kioskId,
+      sku: requestRecord.sku,
+      requestedSize: requestRecord.requestedSize ?? null,
+      requestedColor: requestRecord.requestedColor ?? null,
+      employeeId,
+      status: "CLAIMED",
+      createdAt: timestamp,
+    };
 
     await docClient.send(new TransactWriteCommand({
       TransactItems: [
@@ -101,6 +117,13 @@ export const handler = async (event) => {
               ":employeeId": employeeId,
               ":timestamp": timestamp,
             },
+          },
+        },
+        {
+          Put: {
+            TableName: "VestiaSessions",
+            Item: claimEvent,
+            ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
           },
         },
       ],

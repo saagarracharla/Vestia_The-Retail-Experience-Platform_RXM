@@ -49,6 +49,12 @@ function getTargetStatus(body) {
   return body.status;
 }
 
+function getRequestEventType(targetStatus) {
+  if (targetStatus === "DELIVERED") return "REQUEST_DELIVERED";
+  if (targetStatus === "CANCELLED") return "REQUEST_CANCELLED";
+  return "REQUEST_UPDATED";
+}
+
 export const handler = async (event) => {
   if (event.requestContext?.http?.method === "OPTIONS") {
     return { statusCode: 200, headers: CORS_HEADERS, body: "" };
@@ -111,6 +117,26 @@ export const handler = async (event) => {
       updateExpression += ", cancelledAt = if_not_exists(cancelledAt, :timestamp)";
     }
 
+    const requestStateEvent = {
+      PK: `SESSION#${request.sessionId}`,
+      SK: `REQUEST_EVENT#${requestId}#${timestamp}`,
+      entityType: "REQUEST_EVENT",
+      eventType: getRequestEventType(targetStatus),
+      requestId,
+      sessionId: request.sessionId,
+      storeId: request.storeId,
+      kioskId: request.kioskId,
+      sku: request.sku,
+      requestedSize: request.requestedSize ?? null,
+      requestedColor: request.requestedColor ?? null,
+      status: targetStatus,
+      createdAt: timestamp,
+    };
+
+    if (request.employeeId) {
+      requestStateEvent.employeeId = request.employeeId;
+    }
+
     const transactItems = [
       {
         Update: {
@@ -136,6 +162,13 @@ export const handler = async (event) => {
           UpdateExpression: updateExpression,
           ExpressionAttributeNames: exprNames,
           ExpressionAttributeValues: exprValues,
+        },
+      },
+      {
+        Put: {
+          TableName: "VestiaSessions",
+          Item: requestStateEvent,
+          ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)",
         },
       },
     ];
