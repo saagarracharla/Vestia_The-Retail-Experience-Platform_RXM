@@ -359,7 +359,13 @@ export default function SessionKioskPage() {
       }, 2000);
     } catch (err) {
       console.error("Failed to scan item:", err);
-      setMessage(`Failed to scan item: ${err instanceof Error ? err.message : 'Unknown error'}`);
+
+      if (err instanceof APIRequestError && err.status === 404) {
+        setMessage("Invalid SKU. Please scan an item that exists in the catalog.");
+      } else {
+        setMessage(`Failed to scan item: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      }
+
       setMessageType("error");
       // Remove from deduplication set on error so user can retry
       submittedRequestsRef.current.delete(recentScanKey);
