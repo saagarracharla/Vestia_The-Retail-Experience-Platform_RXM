@@ -24,7 +24,16 @@ The application is fully deployed on AWS. No installation needed — just open t
 Go to: http://vestia-alb-260109529.ca-central-1.elb.amazonaws.com/
 
 ### Step 2 — Scan an item
-Enter SKU **`10005`** in the scan field to add an item to the session. You can scan multiple SKUs.
+Enter a SKU in the scan field to add items to the session. Try these compatible items to build a full outfit:
+
+| SKU | Item | Category |
+|-----|------|----------|
+| `10005` | Nike Men's Blue Sports T-Shirt | Top |
+| `10020` | Nike Men's Reversible Shorts | Bottom |
+| `1917` | Puma Men's White Sneakers | Shoes |
+| `8302` | Reebok Men's Premier Sports Shoes | Shoes |
+
+Start with `10005` and add others to see Mix & Match in action.
 
 ### Step 3 — Log in with the test account
 When prompted, enter `demo@vestia.com` to activate personalized recommendations.
