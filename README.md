@@ -23,8 +23,11 @@ The application is fully deployed on AWS. No installation needed — just open t
 ### Step 1 — Open the Kiosk
 Go to: http://vestia-alb-260109529.ca-central-1.elb.amazonaws.com/
 
-### Step 2 — Log in with the test account
-Enter `demo@vestia.com` in the login field to activate personalized recommendations.
+### Step 2 — Scan an item
+Enter SKU **`10005`** in the scan field to add an item to the session. You can scan multiple SKUs.
+
+### Step 3 — Log in with the test account
+When prompted, enter `demo@vestia.com` to activate personalized recommendations.
 
 | Field | Value |
 |-------|-------|
@@ -34,9 +37,6 @@ Enter `demo@vestia.com` in the login field to activate personalized recommendati
 | Preferred colours | Black, Navy, Grey |
 
 You can also skip login to explore as a guest — all core features work without an account.
-
-### Step 3 — Scan an item
-Enter SKU **`10005`** in the scan field to add an item to the session. You can scan multiple SKUs.
 
 ### Step 4 — Explore features
 - Click any scanned item to view **outfit recommendations**
