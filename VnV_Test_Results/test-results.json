@@ -1,0 +1,365 @@
+{
+  "runAt": "2026-04-07T00:29:05.827Z",
+  "apiBase": "https://993toyh3x5.execute-api.ca-central-1.amazonaws.com",
+  "region": "ca-central-1",
+  "totalTests": 20,
+  "passed": 17,
+  "failed": 3,
+  "components": {
+    "Product Database / Product Get Service": {
+      "tests": [
+        {
+          "name": "GET /product/{sku} — known SKU",
+          "warmupRuns": 2,
+          "measuredRuns": 10,
+          "successfulMeasuredRuns": 10,
+          "p95_ms": 63,
+          "avg_ms": 48,
+          "min_ms": 36,
+          "max_ms": 63,
+          "coldStart_ms": 273,
+          "target_p95_ms": 500,
+          "functionalStatus": "PASS",
+          "perfStatus": "PASS",
+          "overallStatus": "PASS",
+          "error": null
+        },
+        {
+          "name": "GET /product/{sku} — invalid SKU (expect 404)",
+          "warmupRuns": 2,
+          "measuredRuns": 10,
+          "successfulMeasuredRuns": 10,
+          "p95_ms": 60,
+          "avg_ms": 44,
+          "min_ms": 37,
+          "max_ms": 60,
+          "coldStart_ms": 38,
+          "target_p95_ms": 500,
+          "functionalStatus": "PASS",
+          "perfStatus": "PASS",
+          "overallStatus": "PASS",
+          "error": null
+        }
+      ],
+      "allPass": true
+    },
+    "Session Scan/Get Service": {
+      "tests": [
+        {
+          "name": "POST /session/scan — record item scan",
+          "warmupRuns": 2,
+          "measuredRuns": 10,
+          "successfulMeasuredRuns": 10,
+          "p95_ms": 277,
+          "avg_ms": 112,
+          "min_ms": 56,
+          "max_ms": 277,
+          "coldStart_ms": 178,
+          "target_p95_ms": 300,
+          "functionalStatus": "PASS",
+          "perfStatus": "PASS",
+          "overallStatus": "PASS",
+          "error": null
+        },
+        {
+          "name": "POST /session/preferences — save session prefs",
+          "warmupRuns": 2,
+          "measuredRuns": 10,
+          "successfulMeasuredRuns": 10,
+          "p95_ms": 64,
+          "avg_ms": 54,
+          "min_ms": 39,
+          "max_ms": 64,
+          "coldStart_ms": 143,
+          "target_p95_ms": 500,
+          "functionalStatus": "PASS",
+          "perfStatus": "PASS",
+          "overallStatus": "PASS",
+          "error": null
+        },
+        {
+          "name": "GET /session/{sessionId} — retrieve active session",
+          "warmupRuns": 2,
+          "measuredRuns": 10,
+          "successfulMeasuredRuns": 10,
+          "p95_ms": 98,
+          "avg_ms": 69,
+          "min_ms": 35,
+          "max_ms": 98,
+          "coldStart_ms": 155,
+          "target_p95_ms": 500,
+          "functionalStatus": "PASS",
+          "perfStatus": "PASS",
+          "overallStatus": "PASS",
+          "error": null
+        },
+        {
+          "name": "POST /session/feedback — submit end-of-session feedback",
+          "warmupRuns": 2,
+          "measuredRuns": 10,
+          "successfulMeasuredRuns": 10,
+          "p95_ms": 68,
+          "avg_ms": 43,
+          "min_ms": 34,
+          "max_ms": 68,
+          "coldStart_ms": 62,
+          "target_p95_ms": 500,
+          "functionalStatus": "PASS",
+          "perfStatus": "PASS",
+          "overallStatus": "PASS",
+          "error": null
+        }
+      ],
+      "allPass": true
+    },
+    "Recommendation Service": {
+      "tests": [
+        {
+          "name": "POST /recommend — single-item mode (top → bottom)",
+          "warmupRuns": 2,
+          "measuredRuns": 10,
+          "successfulMeasuredRuns": 10,
+          "p95_ms": 1547,
+          "avg_ms": 1440,
+          "min_ms": 1340,
+          "max_ms": 1547,
+          "coldStart_ms": 1439,
+          "target_p95_ms": 1000,
+          "functionalStatus": "PASS",
+          "perfStatus": "FAIL",
+          "overallStatus": "FAIL",
+          "error": null
+        },
+        {
+          "name": "POST /recommend — single-item mode (top → shoes)",
+          "warmupRuns": 2,
+          "measuredRuns": 10,
+          "successfulMeasuredRuns": 10,
+          "p95_ms": 1546,
+          "avg_ms": 1438,
+          "min_ms": 1364,
+          "max_ms": 1546,
+          "coldStart_ms": 1370,
+          "target_p95_ms": 1000,
+          "functionalStatus": "PASS",
+          "perfStatus": "FAIL",
+          "overallStatus": "FAIL",
+          "error": null
+        },
+        {
+          "name": "POST /recommend — mix & match mode (2 base items)",
+          "warmupRuns": 2,
+          "measuredRuns": 10,
+          "successfulMeasuredRuns": 10,
+          "p95_ms": 1618,
+          "avg_ms": 1520,
+          "min_ms": 1423,
+          "max_ms": 1618,
+          "coldStart_ms": 1600,
+          "target_p95_ms": 1000,
+          "functionalStatus": "PASS",
+          "perfStatus": "FAIL",
+          "overallStatus": "FAIL",
+          "error": null
+        }
+      ],
+      "allPass": false
+    },
+    "Request Create/Claim/Update Service": {
+      "tests": [
+        {
+          "name": "POST /request — create size request",
+          "warmupRuns": 2,
+          "measuredRuns": 3,
+          "successfulMeasuredRuns": 3,
+          "p95_ms": 277,
+          "avg_ms": 198,
+          "min_ms": 133,
+          "max_ms": 277,
+          "coldStart_ms": 230,
+          "target_p95_ms": 2000,
+          "functionalStatus": "PASS",
+          "perfStatus": "PASS",
+          "overallStatus": "PASS",
+          "error": null
+        },
+        {
+          "name": "GET /store/{storeId}/request — fetch store request queue",
+          "warmupRuns": 2,
+          "measuredRuns": 10,
+          "successfulMeasuredRuns": 10,
+          "p95_ms": 291,
+          "avg_ms": 97,
+          "min_ms": 49,
+          "max_ms": 291,
+          "coldStart_ms": 327,
+          "target_p95_ms": 2000,
+          "functionalStatus": "PASS",
+          "perfStatus": "PASS",
+          "overallStatus": "PASS",
+          "error": null
+        },
+        {
+          "name": "PATCH /request/{id}/claim — staff claims request",
+          "warmupRuns": 2,
+          "measuredRuns": 1,
+          "successfulMeasuredRuns": 1,
+          "p95_ms": 279,
+          "avg_ms": 279,
+          "min_ms": 279,
+          "max_ms": 279,
+          "coldStart_ms": 613,
+          "target_p95_ms": 2000,
+          "functionalStatus": "PASS",
+          "perfStatus": "PASS",
+          "overallStatus": "PASS",
+          "error": null
+        },
+        {
+          "name": "PATCH /request/{id} — mark delivered (full lifecycle)",
+          "warmupRuns": 2,
+          "measuredRuns": 1,
+          "successfulMeasuredRuns": 1,
+          "p95_ms": 440,
+          "avg_ms": 440,
+          "min_ms": 440,
+          "max_ms": 440,
+          "coldStart_ms": 591,
+          "target_p95_ms": 2000,
+          "functionalStatus": "PASS",
+          "perfStatus": "PASS",
+          "overallStatus": "PASS",
+          "error": null
+        }
+      ],
+      "allPass": true
+    },
+    "Customer Profile Service": {
+      "tests": [
+        {
+          "name": "GET /customer/{id} — new customer (expect 404)",
+          "warmupRuns": 2,
+          "measuredRuns": 10,
+          "successfulMeasuredRuns": 10,
+          "p95_ms": 60,
+          "avg_ms": 44,
+          "min_ms": 38,
+          "max_ms": 60,
+          "coldStart_ms": 172,
+          "target_p95_ms": 300,
+          "functionalStatus": "PASS",
+          "perfStatus": "PASS",
+          "overallStatus": "PASS",
+          "error": null
+        },
+        {
+          "name": "PUT /customer/{id} — create/upsert profile",
+          "warmupRuns": 2,
+          "measuredRuns": 10,
+          "successfulMeasuredRuns": 10,
+          "p95_ms": 120,
+          "avg_ms": 94,
+          "min_ms": 72,
+          "max_ms": 120,
+          "coldStart_ms": 203,
+          "target_p95_ms": 300,
+          "functionalStatus": "PASS",
+          "perfStatus": "PASS",
+          "overallStatus": "PASS",
+          "error": null
+        },
+        {
+          "name": "GET /customer/{id} — fetch existing profile",
+          "warmupRuns": 2,
+          "measuredRuns": 10,
+          "successfulMeasuredRuns": 10,
+          "p95_ms": 261,
+          "avg_ms": 86,
+          "min_ms": 39,
+          "max_ms": 261,
+          "coldStart_ms": 42,
+          "target_p95_ms": 300,
+          "functionalStatus": "PASS",
+          "perfStatus": "PASS",
+          "overallStatus": "PASS",
+          "error": null
+        }
+      ],
+      "allPass": true
+    },
+    "Outfit Save/Share Service": {
+      "tests": [
+        {
+          "name": "POST /outfit — save outfit",
+          "warmupRuns": 2,
+          "measuredRuns": 10,
+          "successfulMeasuredRuns": 10,
+          "p95_ms": 346,
+          "avg_ms": 85,
+          "min_ms": 36,
+          "max_ms": 346,
+          "coldStart_ms": 65,
+          "target_p95_ms": 500,
+          "functionalStatus": "PASS",
+          "perfStatus": "PASS",
+          "overallStatus": "PASS",
+          "error": null
+        },
+        {
+          "name": "GET /outfit/{shareCode} — retrieve saved outfit",
+          "warmupRuns": 2,
+          "measuredRuns": 10,
+          "successfulMeasuredRuns": 10,
+          "p95_ms": 67,
+          "avg_ms": 50,
+          "min_ms": 33,
+          "max_ms": 67,
+          "coldStart_ms": 48,
+          "target_p95_ms": 500,
+          "functionalStatus": "PASS",
+          "perfStatus": "PASS",
+          "overallStatus": "PASS",
+          "error": null
+        }
+      ],
+      "allPass": true
+    },
+    "Analytics Aggregation Service / Store Owner Dashboard": {
+      "tests": [
+        {
+          "name": "GET /analytics?days=7 — 7-day analytics",
+          "warmupRuns": 2,
+          "measuredRuns": 10,
+          "successfulMeasuredRuns": 10,
+          "p95_ms": 61,
+          "avg_ms": 58,
+          "min_ms": 53,
+          "max_ms": 61,
+          "coldStart_ms": 106,
+          "target_p95_ms": 3000,
+          "functionalStatus": "PASS",
+          "perfStatus": "PASS",
+          "overallStatus": "PASS",
+          "error": null
+        },
+        {
+          "name": "GET /analytics?days=30 — 30-day analytics",
+          "warmupRuns": 2,
+          "measuredRuns": 10,
+          "successfulMeasuredRuns": 10,
+          "p95_ms": 97,
+          "avg_ms": 67,
+          "min_ms": 59,
+          "max_ms": 97,
+          "coldStart_ms": 70,
+          "target_p95_ms": 3000,
+          "functionalStatus": "PASS",
+          "perfStatus": "PASS",
+          "overallStatus": "PASS",
+          "error": null
+        }
+      ],
+      "allPass": true
+    }
+  }
+}
