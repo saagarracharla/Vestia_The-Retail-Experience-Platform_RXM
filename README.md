@@ -6,9 +6,56 @@ Vestia is a smart fitting room platform that connects customers, staff, and stor
 
 ---
 
-## Quick Start
+## Live Deployment (no setup required)
 
-**Prerequisites:** [Node.js 18+](https://nodejs.org) and npm (included with Node)
+The application is fully deployed on AWS. No installation needed — just open the links below in a browser:
+
+| Interface | URL |
+|-----------|-----|
+| **Customer Kiosk** | http://vestia-alb-260109529.ca-central-1.elb.amazonaws.com/ |
+| **Staff / Admin Dashboard** | http://vestia-alb-260109529.ca-central-1.elb.amazonaws.com/admin |
+| **Store Analytics** | http://vestia-alb-260109529.ca-central-1.elb.amazonaws.com/analytics |
+
+---
+
+## TA Evaluation Guide
+
+### Step 1 — Open the Kiosk
+Go to: http://vestia-alb-260109529.ca-central-1.elb.amazonaws.com/
+
+### Step 2 — Log in with the test account
+Enter `demo@vestia.com` in the login field to activate personalized recommendations.
+
+| Field | Value |
+|-------|-------|
+| Email | `demo@vestia.com` |
+| Purchase history | 8 items (t-shirts, jeans, shoes, watch) |
+| Preferred sizes | Top: M, Bottom: 32, Shoes: 10 |
+| Preferred colours | Black, Navy, Grey |
+
+You can also skip login to explore as a guest — all core features work without an account.
+
+### Step 3 — Scan an item
+Enter SKU **`10005`** in the scan field to add an item to the session. You can scan multiple SKUs.
+
+### Step 4 — Explore features
+- Click any scanned item to view **outfit recommendations**
+- Use **Mix & Match** to build a full outfit from multiple items
+- Tap **Request Size/Colour** to send a request to the staff dashboard
+- Use **Save Outfit** to generate a shareable link/QR code
+- End the session to submit **feedback**
+
+### Step 5 — Check the Staff Dashboard
+Open http://vestia-alb-260109529.ca-central-1.elb.amazonaws.com/admin in a second tab to see the request appear in real time and claim/deliver it.
+
+### Step 6 — View Analytics
+Open http://vestia-alb-260109529.ca-central-1.elb.amazonaws.com/analytics to see store-wide session, scan, and fulfillment metrics.
+
+---
+
+## Run Locally (optional)
+
+**Prerequisites:** [Node.js 18+](https://nodejs.org) and npm
 
 ```bash
 # 1. Clone the repo
@@ -24,24 +71,6 @@ npm run dev
 ```
 
 No environment variables or local backend setup needed — the backend runs on AWS and the frontend connects to it automatically.
-
----
-
-## Test Account (for TA evaluation)
-
-A pre-loaded customer profile is available for testing personalization features:
-
-| Field | Value |
-|-------|-------|
-| Email (login) | `demo@vestia.com` |
-| Gender | Men |
-| Purchase history | 8 items (t-shirts, jeans, shoes, watch) |
-| Preferred sizes | Top: M, Bottom: 32, Shoes: 10 |
-| Preferred colours | Black, Navy, Grey |
-
-**To use:** On the kiosk welcome screen, enter `demo@vestia.com` in the login field. Recommendations will be personalised based on this profile's purchase history and preferences.
-
-**To explore as a guest:** Skip login — all core features (scanning, requests, recommendations, feedback) work without an account.
 
 | URL | Interface |
 |-----|-----------|
