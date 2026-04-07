@@ -124,6 +124,7 @@ export function generateHeatmapData(
       height: zone.height,
       scanCount,
       heatIntensity: intensity,
+      intensity,
       color,
     };
   });
