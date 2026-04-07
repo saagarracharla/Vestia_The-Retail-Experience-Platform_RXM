@@ -204,6 +204,43 @@ Analytics queries perform significantly faster than the 3000ms target. Pre-aggre
 
 The observed warm average of ~1440ms is consistent across all request types, confirming this is a catalog scan bottleneck rather than cold start behaviour. The original 1000ms target was set before full catalog scale was known. For future work, pre-filtering candidates via a DynamoDB Global Secondary Index on category+gender before scoring would reduce the candidate set and bring latency within target.
 
+### 10.8.2 Recommendation Quality Evaluation — Precision@K
+
+**Motivation:** Latency alone does not measure whether the recommendation engine produces useful results. A response-time target tells us the system is fast, not that it is accurate. To address this, a task-specific quality evaluation was conducted measuring Precision@K — the fraction of the top-K recommendations that a fashion expert would consider compatible with the base item.
+
+**Methodology:**
+Ground truth compatibility was defined using curated rules across four dimensions:
+1. **Category constraint** — the recommended item must be in a different category than the base item (no top + top)
+2. **Gender constraint** — the recommended item must match the base item's gender (or be unisex)
+3. **Colour compatibility** — the base colour and recommended colour must be a known-compatible pair (e.g., black + navy ✓, black + pink ✗), derived from the same `CompatibilityStats` logic used by the algorithm
+4. **Article type compatibility** — the base article type and recommended article type must be a known-compatible pair (e.g., Tshirts + Jeans ✓, Sports Shoes + Formal Shirts ✗), derived from fashion conventions and the `CompatibilityStats` pre-computed entries
+
+12 curated test cases were defined spanning four target categories (tops, bottoms, shoes, accessories) and multiple base item types. For each test case, the top-5 and top-10 results from the live recommendation API were fetched and each recommendation was evaluated against all four criteria.
+
+**Results (measured against live deployment, April 7, 2026):**
+
+| Metric | Score | SRS Target |
+|---|---|---|
+| Precision@1 | **1.000 (100%)** | — |
+| Precision@3 | **0.973 (97.3%)** | — |
+| Precision@5 | **0.850 (85.0%)** | > 75% |
+
+**Results by target category (Precision@5):**
+
+| Target Category | Avg P@5 | Test Cases |
+|---|---|---|
+| Bottom | 1.00 | 4 |
+| Top | 0.87 | 3 |
+| Accessory | 0.80 | 1 |
+| Shoes | 0.70 | 4 |
+
+**Analysis:**
+The engine meets the SRS accuracy target of >75% for top-5 recommendations (measured P@5: 85.0%). The top-1 recommendation was correct in all 12 test cases (P@1: 100%), indicating the highest-scoring result is reliably compatible. P@5 drops to 85% because lower-ranked results occasionally include items at the boundary of fashion compatibility (e.g., formal shoes paired with a casual t-shirt, sports sandals paired with a dress shirt). These edge cases reflect genuine ambiguity in fashion compatibility rather than algorithmic failure.
+
+The shoes category has the lowest P@5 (0.70), primarily because the `shoes` category in the catalog includes footwear sub-types (sports shoes, formal shoes, sandals, flip flops, sports sandals) with different formality levels, and the algorithm does not yet distinguish sub-category formality when scoring. This is a known gap identified for future improvement.
+
+Full per-test-case results and the evaluation script are available in `VnV_Test_Results/rec-quality-eval.mjs` and `VnV_Test_Results/recommendation_test_results.json`.
+
 ---
 
 ## 10.9 Outfit Save/Share Service
