@@ -1,0 +1,118 @@
+{
+  "evaluatedAt": "2026-04-07T20:28:01.295Z",
+  "testCases": 12,
+  "methodology": "Precision@K against curated compatibility rules (colour, article type, gender, category constraints)",
+  "groundTruth": {
+    "colourPairs": 77,
+    "articleTypePairs": 134,
+    "criteria": [
+      "recommended category ≠ base item category",
+      "gender match (or unisex)",
+      "colour pair is known-compatible",
+      "article type pair is known-compatible"
+    ]
+  },
+  "aggregate": {
+    "precision@1": "1.000",
+    "precision@3": "0.973",
+    "precision@5": "0.850"
+  },
+  "perTestCase": [
+    {
+      "label": "Men's black t-shirt → bottoms",
+      "precisionAt1": "1.00",
+      "precisionAt3": "1.00",
+      "precisionAt5": "1.00",
+      "correctIn10": 5,
+      "totalIn10": 5
+    },
+    {
+      "label": "Men's black t-shirt → shoes",
+      "precisionAt1": "1.00",
+      "precisionAt3": "1.00",
+      "precisionAt5": "0.80",
+      "correctIn10": 4,
+      "totalIn10": 5
+    },
+    {
+      "label": "Men's black t-shirt → accessory",
+      "precisionAt1": "1.00",
+      "precisionAt3": "1.00",
+      "precisionAt5": "0.80",
+      "correctIn10": 4,
+      "totalIn10": 5
+    },
+    {
+      "label": "Men's blue shirt → bottoms",
+      "precisionAt1": "1.00",
+      "precisionAt3": "1.00",
+      "precisionAt5": "1.00",
+      "correctIn10": 5,
+      "totalIn10": 5
+    },
+    {
+      "label": "Men's blue shirt → shoes",
+      "precisionAt1": "1.00",
+      "precisionAt3": "0.67",
+      "precisionAt5": "0.40",
+      "correctIn10": 2,
+      "totalIn10": 5
+    },
+    {
+      "label": "Men's grey t-shirt → bottoms",
+      "precisionAt1": "1.00",
+      "precisionAt3": "1.00",
+      "precisionAt5": "1.00",
+      "correctIn10": 5,
+      "totalIn10": 5
+    },
+    {
+      "label": "Men's blue jeans → tops",
+      "precisionAt1": "1.00",
+      "precisionAt3": "1.00",
+      "precisionAt5": "1.00",
+      "correctIn10": 5,
+      "totalIn10": 5
+    },
+    {
+      "label": "Men's blue jeans → shoes",
+      "precisionAt1": "1.00",
+      "precisionAt3": "1.00",
+      "precisionAt5": "0.80",
+      "correctIn10": 4,
+      "totalIn10": 5
+    },
+    {
+      "label": "Men's black trousers → tops",
+      "precisionAt1": "1.00",
+      "precisionAt3": "1.00",
+      "precisionAt5": "1.00",
+      "correctIn10": 5,
+      "totalIn10": 5
+    },
+    {
+      "label": "Men's black sports shoes → tops",
+      "precisionAt1": "1.00",
+      "precisionAt3": "1.00",
+      "precisionAt5": "0.60",
+      "correctIn10": 3,
+      "totalIn10": 5
+    },
+    {
+      "label": "Men's watch → bottoms",
+      "precisionAt1": "1.00",
+      "precisionAt3": "1.00",
+      "precisionAt5": "1.00",
+      "correctIn10": 5,
+      "totalIn10": 5
+    },
+    {
+      "label": "Men's grey t-shirt → shoes",
+      "precisionAt1": "1.00",
+      "precisionAt3": "1.00",
+      "precisionAt5": "0.80",
+      "correctIn10": 4,
+      "totalIn10": 5
+    }
+  ]
+}
