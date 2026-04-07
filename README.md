@@ -12,7 +12,7 @@ Vestia is a smart fitting room platform that connects customers, staff, and stor
 
 ```bash
 # 1. Clone the repo
-git clone <repo-url>
+git clone https://github.com/saagarracharla/Vestia_The-Retail-Experience-Platform_RXM.git
 cd Vestia_The-Retail-Experience-Platform_RXM
 
 # 2. Install frontend dependencies
@@ -24,6 +24,24 @@ npm run dev
 ```
 
 No environment variables or local backend setup needed — the backend runs on AWS and the frontend connects to it automatically.
+
+---
+
+## Test Account (for TA evaluation)
+
+A pre-loaded customer profile is available for testing personalization features:
+
+| Field | Value |
+|-------|-------|
+| Email (login) | `demo@vestia.com` |
+| Gender | Men |
+| Purchase history | 8 items (t-shirts, jeans, shoes, watch) |
+| Preferred sizes | Top: M, Bottom: 32, Shoes: 10 |
+| Preferred colours | Black, Navy, Grey |
+
+**To use:** On the kiosk welcome screen, enter `demo@vestia.com` in the login field. Recommendations will be personalised based on this profile's purchase history and preferences.
+
+**To explore as a guest:** Skip login — all core features (scanning, requests, recommendations, feedback) work without an account.
 
 | URL | Interface |
 |-----|-----------|
@@ -47,7 +65,7 @@ Vestia_The-Retail-Experience-Platform_RXM/
 │       └── utils/             # Helpers (sessionId generation)
 │
 ├── backend/                   # Serverless backend
-│   ├── lambdas/               # 13 active AWS Lambda functions (Node.js 22, ESM)
+│   ├── lambdas/               # 14 active AWS Lambda functions (Node.js 22, ESM)
 │   ├── scripts/               # One-time data pipeline scripts
 │   └── context/               # OpenAPI spec, DynamoDB schema reference
 │
@@ -65,7 +83,7 @@ Vestia_The-Retail-Experience-Platform_RXM/
 
 ### Backend (AWS — `ca-central-1`)
 - **API Gateway**: HTTP API v2 (`vestia-api`, id: `993toyh3x5`)
-- **Lambda**: 13 active functions, Node.js 22.x ESM modules
+- **Lambda**: 14 active functions, Node.js 22.x ESM modules
 - **DynamoDB**: 4 tables — `VestiaSessions`, `ProductCatalog`, `CompatibilityStats`, `CustomerProfiles`
 - **S3**: `vestia-product-images` (44k product images), `vestia-product-data-ca` (raw Myntra JSONs)
 
@@ -114,6 +132,19 @@ cd backend/lambdas/vestia-recommend
 zip -q function.zip index.mjs
 aws lambda update-function-code --function-name vestia-recommend --zip-file fileb://function.zip --region ca-central-1
 ```
+
+---
+
+## Submission Documents
+
+| Document | Location |
+|----------|----------|
+| Software Requirements Specification (SRS) | `Documents/SRS_Project_plan_requirements.pdf` |
+| Design Doc + V&V | `Documents/VestiaDesignAndV&VDoc.pdf` |
+| Reflection | `Documents/Group_27_Reflection.pdf` |
+| V&V Test Results (live API) | `VnV_Test_Results/VnV_Test_Results.md` |
+| V&V Test Runner script | `VnV_Test_Results/test-runner.mjs` |
+| V&V Raw JSON results | `VnV_Test_Results/test-results.json` |
 
 ---
 
